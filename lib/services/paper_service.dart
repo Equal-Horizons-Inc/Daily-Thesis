@@ -138,11 +138,13 @@ class PaperService {
   /// returns a full candidate list per subject, so no backend changes are
   /// needed for prefetching.
   Future<List<Paper>> fetchCandidates({
-    required String subject,
-    int count = 4,
+    String? subject,
+    int count = 20,
     Set<String> excludeUrls = const {},
   }) async {
-    final uri = Uri.parse('$_workerUrl?subject=$subject');
+    final uri = subject == null || subject == 'all'
+        ? Uri.parse(_workerUrl)
+        : Uri.parse('$_workerUrl?subject=$subject');
     final response = await _get(uri);
 
     if (response.statusCode != 200) {

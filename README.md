@@ -12,7 +12,7 @@ The app is free to use, supported by AdMob ads.
 
 - **Flutter / Dart** — see `pubspec.yaml` for exact SDK and package versions
 - **Backend**: a Cloudflare Worker that queries arXiv and OpenAlex and returns matched papers
-- **Local storage**: `shared_preferences` for user profile, subjects, and reading history — no account or server-side user data
+- **Local storage and personalization**: `shared_preferences` stores the user profile, subjects, reading history, and the on-device recommendation events used by the local ranker — no account or server-side user data
 - **Ads**: `google_mobile_ads` (AdMob), configured via `.env` (see Setup below)
 
 Ads currently run on Android/iOS only; the app also builds for web and desktop via Flutter's standard multi-platform support.
@@ -52,6 +52,11 @@ Code follows a standard Flutter convention:
 - `lib/services/` — data fetching and local persistence (papers, user profile, ad loading, etc.)
 - `lib/widgets/` — reusable UI pieces shared across screens
 - `lib/models/` — data classes
+
+The recommendation flow fetches a candidate pool from the Worker, ranks it
+locally using explicit interests plus learned likes and dismissals, and keeps
+those learning events on the device. The model is intentionally small and
+explainable so it can personalize without uploading reading behavior.
 
 For what's actually in each folder today, just look — this list is deliberately not itemized further so it doesn't go stale as files get added.
 

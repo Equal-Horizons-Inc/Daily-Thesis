@@ -15,6 +15,7 @@ import '../services/liked_papers_storage.dart';
 import '../services/paper_buffer_storage.dart';
 import '../services/paper_history_storage.dart';
 import '../services/paper_service.dart';
+import '../services/local_recommendation_service.dart';
 import '../services/profile_storage.dart';
 import '../services/streak_service.dart';
 import '../services/clock_skew.dart';
@@ -40,6 +41,7 @@ class PaperScreen extends StatefulWidget {
 class _PaperScreenState extends State<PaperScreen>
     with TickerProviderStateMixin, WidgetsBindingObserver {
   final _service = PaperService();
+  final _recommendationService = LocalRecommendationService();
   final _profileStorage = ProfileStorage();
   final _historyStorage = PaperHistoryStorage();
   final _feedbackStorage = FeedbackStorage();
@@ -281,10 +283,14 @@ class _PaperScreenState extends State<PaperScreen>
       for (final subject in subjects) {
         if (await _bufferStorage.count() >= PaperBufferStorage.targetSize) break;
         final candidates = await _service.fetchCandidates(
-          subject: subject,
+          subject: subject == 'all' ? null : subject,
           excludeUrls: excludeUrls,
         );
-        await _bufferStorage.addIfRoom(candidates, excludeUrls: excludeUrls);
+        final ranked = await _recommendationService.rank(
+          candidates,
+          interests: _profile?.interests ?? const [],
+        );
+        await _bufferStorage.addIfRoom(ranked, excludeUrls: excludeUrls);
       }
     } catch (_) {
       // Buffer refill is best-effort
@@ -335,14 +341,23 @@ class _PaperScreenState extends State<PaperScreen>
       }
 
       final excludeUrls = await _excludedUrls();
-      final paper = await _service.fetchDailyPaper(
-        matchedSubjects: selectedSubjects,
-        dislikeCounts: _dislikeCounts,
+      final candidates = await _service.fetchCandidates(
+        subject: _currentSubject,
         excludeUrls: excludeUrls,
       );
-      await _historyStorage.saveDailyRecommendation(paper);
+      final paper = await _recommendationService.choose(
+        candidates,
+        interests: _profile?.interests ?? const [],
+      );
+      final selectedPaper = paper ??
+          await _service.fetchDailyPaper(
+            matchedSubjects: selectedSubjects,
+            dislikeCounts: _dislikeCounts,
+            excludeUrls: excludeUrls,
+          );
+      await _historyStorage.saveDailyRecommendation(selectedPaper);
       setState(() {
-        _paper = paper;
+        _paper = selectedPaper;
         isLoading = false;
       });
       _markLoadedToday();
@@ -377,6 +392,7 @@ class _PaperScreenState extends State<PaperScreen>
 
     await _dismissedStorage.add(dismissedPaper.url);
     await _historyStorage.updateStatus(dismissedPaper.url, PaperFeedbackStatus.disliked);
+    await _recommendationService.recordDismissal(dismissedPaper);
 
     await _getAnotherPaper();
   }
@@ -408,15 +424,24 @@ class _PaperScreenState extends State<PaperScreen>
       }
 
       final excludeUrls = await _excludedUrls();
-      final newPaper = await _service.fetchAnotherPaper(
-        subject: nextSubject,
-        attempt: _attempt++,
+      final candidates = await _service.fetchCandidates(
+        subject: nextSubject == 'all' ? null : nextSubject,
         excludeUrls: excludeUrls,
       );
+      final newPaper = await _recommendationService.choose(
+        candidates,
+        interests: _profile?.interests ?? const [],
+      );
+      final selectedPaper = newPaper ??
+          await _service.fetchAnotherPaper(
+            subject: nextSubject,
+            attempt: _attempt++,
+            excludeUrls: excludeUrls,
+          );
 
-      await _historyStorage.saveDailyRecommendation(newPaper);
+      await _historyStorage.saveDailyRecommendation(selectedPaper);
       setState(() {
-        _paper = newPaper;
+        _paper = selectedPaper;
         _currentSubject = nextSubject;
         isLoading = false;
         _isOffline = false;
@@ -454,6 +479,11 @@ class _PaperScreenState extends State<PaperScreen>
       }
     });
     await _likedStorage.setLiked(paper.url, liked);
+    if (liked) {
+      await _recommendationService.recordLike(paper);
+    } else {
+      await _recommendationService.removeLike(paper);
+    }
     await _historyStorage.updateStatus(
       paper.url,
       liked ? PaperFeedbackStatus.liked : PaperFeedbackStatus.none,
