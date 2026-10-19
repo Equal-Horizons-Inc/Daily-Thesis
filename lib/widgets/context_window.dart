@@ -41,7 +41,6 @@ class _ContextWindowState extends State<ContextWindow>
   bool _expanded = false;
   _LoadState _loadState = _LoadState.idle;
   PaperContext? _context;
-  int _retryAfterSeconds = 60;
 
   // Drives the skeleton loader's shimmer pulse while context is loading.
   // Built eagerly in initState (below) rather than as a lazily-initialized
@@ -102,11 +101,10 @@ class _ContextWindowState extends State<ContextWindow>
         _context = result;
         _loadState = _LoadState.loaded;
       });
-    } on ContextUnavailableException catch (e) {
+    } on ContextUnavailableException {
       if (!mounted) return;
       setState(() {
         _loadState = _LoadState.unavailable;
-        _retryAfterSeconds = e.retryAfterSeconds;
       });
     } catch (_) {
       if (!mounted) return;
@@ -200,15 +198,16 @@ class _ContextWindowState extends State<ContextWindow>
       case _LoadState.idle:
         return const SizedBox.shrink();
       case _LoadState.loading:
-        return _paddedBody(
-          palette: palette,
-          child: _buildSkeleton(palette),
-        );
+        return _paddedBody(palette: palette, child: _buildSkeleton(palette));
       case _LoadState.error:
         return _paddedBody(
           child: Row(
             children: [
-              Icon(Icons.error_outline_rounded, size: 15, color: palette.danger),
+              Icon(
+                Icons.error_outline_rounded,
+                size: 15,
+                color: palette.danger,
+              ),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
@@ -355,10 +354,7 @@ class _ContextWindowState extends State<ContextWindow>
       decoration: BoxDecoration(
         border: Border(top: BorderSide(color: palette.borderSoft, width: 1)),
       ),
-      child: Padding(
-        padding: const EdgeInsets.only(top: 12),
-        child: child,
-      ),
+      child: Padding(padding: const EdgeInsets.only(top: 12), child: child),
     );
   }
 }

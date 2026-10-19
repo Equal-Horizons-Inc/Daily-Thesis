@@ -16,11 +16,14 @@ Future<void> _showAnimatedDialog(
     context: context,
     barrierDismissible: true,
     barrierLabel: label,
-    barrierColor: Colors.black.withOpacity(0.54),
+    barrierColor: Colors.black.withValues(alpha: 0.54),
     transitionDuration: duration,
-    pageBuilder: (_, __, ___) => _StreakPopupShell(child: child),
-    transitionBuilder: (context, anim, __, child) {
-      final opacityWidget = Opacity(opacity: anim.value.clamp(0.0, 1.0), child: child);
+    pageBuilder: (_, _, _) => _StreakPopupShell(child: child),
+    transitionBuilder: (context, anim, _, child) {
+      final opacityWidget = Opacity(
+        opacity: anim.value.clamp(0.0, 1.0),
+        child: child,
+      );
       if (!enableScale) return opacityWidget;
 
       final curved = CurvedAnimation(parent: anim, curve: curve);
@@ -49,7 +52,10 @@ Future<void> showStreakIncreasedPopup(
 }
 
 /// Shown right after a missed day is auto-forgiven by a freeze.
-Future<void> showFreezeUsedPopup(BuildContext context, {required int currentStreak}) {
+Future<void> showFreezeUsedPopup(
+  BuildContext context, {
+  required int currentStreak,
+}) {
   return _showAnimatedDialog(
     context,
     label: 'Freeze used',
@@ -58,7 +64,10 @@ Future<void> showFreezeUsedPopup(BuildContext context, {required int currentStre
 }
 
 /// Shown when a gap was too large for freezes to cover and the streak reset.
-Future<void> showStreakBrokenPopup(BuildContext context, {required int previousStreak}) {
+Future<void> showStreakBrokenPopup(
+  BuildContext context, {
+  required int previousStreak,
+}) {
   return _showAnimatedDialog(
     context,
     label: 'Streak broken',
@@ -69,7 +78,10 @@ Future<void> showStreakBrokenPopup(BuildContext context, {required int previousS
 }
 
 /// Shown right after a milestone (7, 30, 100... days) is hit.
-Future<void> showMilestonePopup(BuildContext context, {required int milestoneDays}) {
+Future<void> showMilestonePopup(
+  BuildContext context, {
+  required int milestoneDays,
+}) {
   return _showAnimatedDialog(
     context,
     label: 'Milestone reached',
@@ -83,7 +95,7 @@ Future<void> showMilestonePopup(BuildContext context, {required int milestoneDay
 
 class _StreakPopupShell extends StatelessWidget {
   final Widget child;
-  const _StreakPopupShell({super.key, required this.child});
+  const _StreakPopupShell({required this.child});
 
   @override
   Widget build(BuildContext context) {
@@ -95,14 +107,16 @@ class _StreakPopupShell extends StatelessWidget {
           constraints: const BoxConstraints(maxWidth: 300, minWidth: 260),
           padding: const EdgeInsets.symmetric(vertical: 32, horizontal: 24),
           decoration: BoxDecoration(
-            color: Theme.of(context).dialogTheme.backgroundColor ?? Theme.of(context).colorScheme.surface,
+            color:
+                Theme.of(context).dialogTheme.backgroundColor ??
+                Theme.of(context).colorScheme.surface,
             borderRadius: BorderRadius.circular(24),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.25),
+                color: Colors.black.withValues(alpha: 0.25),
                 blurRadius: 32,
                 offset: const Offset(0, 16),
-              )
+              ),
             ],
           ),
           child: child,
@@ -118,17 +132,14 @@ class _FirePopupContent extends StatefulWidget {
   final int oldStreak;
   final int newStreak;
 
-  const _FirePopupContent({
-    super.key,
-    required this.oldStreak,
-    required this.newStreak,
-  });
+  const _FirePopupContent({required this.oldStreak, required this.newStreak});
 
   @override
   State<_FirePopupContent> createState() => _FirePopupContentState();
 }
 
-class _FirePopupContentState extends State<_FirePopupContent> with SingleTickerProviderStateMixin {
+class _FirePopupContentState extends State<_FirePopupContent>
+    with SingleTickerProviderStateMixin {
   late final AnimationController _flicker;
 
   @override
@@ -157,7 +168,11 @@ class _FirePopupContentState extends State<_FirePopupContent> with SingleTickerP
             final scale = 1.0 + (_flicker.value * 0.08);
             return Transform.scale(scale: scale, child: child);
           },
-          child: const Icon(Icons.local_fire_department, color: Colors.deepOrange, size: 76),
+          child: const Icon(
+            Icons.local_fire_department,
+            color: Colors.deepOrange,
+            size: 76,
+          ),
         ),
         const SizedBox(height: 8),
         TweenAnimationBuilder<int>(
@@ -187,13 +202,14 @@ class _FirePopupContentState extends State<_FirePopupContent> with SingleTickerP
 
 class _FreezePopupContent extends StatefulWidget {
   final int currentStreak;
-  const _FreezePopupContent({super.key, required this.currentStreak});
+  const _FreezePopupContent({required this.currentStreak});
 
   @override
   State<_FreezePopupContent> createState() => _FreezePopupContentState();
 }
 
-class _FreezePopupContentState extends State<_FreezePopupContent> with SingleTickerProviderStateMixin {
+class _FreezePopupContentState extends State<_FreezePopupContent>
+    with SingleTickerProviderStateMixin {
   late final AnimationController _shimmer;
 
   @override
@@ -226,7 +242,10 @@ class _FreezePopupContentState extends State<_FreezePopupContent> with SingleTic
           child: const Icon(Icons.ac_unit, color: Colors.lightBlue, size: 72),
         ),
         const SizedBox(height: 16),
-        const Text('Freeze used', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700)),
+        const Text(
+          'Freeze used',
+          style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700),
+        ),
         const SizedBox(height: 8),
         Text(
           'A missed day was covered — your ${widget.currentStreak}-day streak is safe.',
@@ -247,17 +266,23 @@ class _FreezePopupContentState extends State<_FreezePopupContent> with SingleTic
 
 class _BrokenPopupContent extends StatelessWidget {
   final int previousStreak;
-  const _BrokenPopupContent({super.key, required this.previousStreak});
+  const _BrokenPopupContent({required this.previousStreak});
 
   @override
   Widget build(BuildContext context) {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        const Icon(Icons.local_fire_department_outlined, color: Colors.grey, size: 64),
+        const Icon(
+          Icons.local_fire_department_outlined,
+          color: Colors.grey,
+          size: 64,
+        ),
         const SizedBox(height: 16),
         Text(
-          previousStreak > 0 ? 'Your $previousStreak-day streak ended' : 'Streak reset',
+          previousStreak > 0
+              ? 'Your $previousStreak-day streak ended'
+              : 'Streak reset',
           style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
           textAlign: TextAlign.center,
         ),
@@ -281,7 +306,7 @@ class _BrokenPopupContent extends StatelessWidget {
 
 class _MilestonePopupContent extends StatelessWidget {
   final int milestoneDays;
-  const _MilestonePopupContent({super.key, required this.milestoneDays});
+  const _MilestonePopupContent({required this.milestoneDays});
 
   @override
   Widget build(BuildContext context) {

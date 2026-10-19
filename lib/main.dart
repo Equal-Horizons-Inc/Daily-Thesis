@@ -1,10 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'screens/paper_screen.dart';
 import 'screens/onboarding_screen.dart';
-import 'services/ad_service.dart';
 import 'services/analytics_service.dart';
 import 'services/profile_storage.dart';
 import 'services/text_scale_storage.dart';
@@ -16,20 +14,30 @@ import 'services/device_id_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await dotenv.load(fileName: '.env');
   await ThemeModeController.instance.load();
   await TextScaleController.instance.load();
-  await AdService.instance.initialize();
-  await Firebase.initializeApp();
-  await AnalyticsService.instance.initialize();
-  AnalyticsService.instance.logAppOpen();
-  FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
+
+  // Firebase configuration is provisioned separately for each iOS bundle ID.
+  // A missing or invalid configuration must not prevent the reading app from
+  // launching; analytics and push notifications simply remain unavailable.
+  var firebaseAvailable = false;
+  try {
+    await Firebase.initializeApp();
+    firebaseAvailable = true;
+    await AnalyticsService.instance.initialize();
+    AnalyticsService.instance.logAppOpen();
+    FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
+  } catch (error) {
+    debugPrint('Firebase is unavailable: $error');
+  }
   final deviceId = await DeviceIdService.getOrCreate();
   final profile = await ProfileStorage().load();
-  await NotificationService.instance.initialize(
-    deviceId,
-    subjects: profile?.matchedSubjects ?? [],
-  );
+  if (firebaseAvailable) {
+    await NotificationService.instance.initialize(
+      deviceId,
+      subjects: profile?.matchedSubjects ?? [],
+    );
+  }
   runApp(const DailyThesisApp());
 }
 
@@ -60,11 +68,13 @@ class DailyThesisApp extends StatelessWidget {
             SystemChrome.setSystemUIOverlayStyle(
               SystemUiOverlayStyle(
                 statusBarColor: Colors.transparent,
-                statusBarIconBrightness:
-                    brightness == Brightness.dark ? Brightness.light : Brightness.dark,
+                statusBarIconBrightness: brightness == Brightness.dark
+                    ? Brightness.light
+                    : Brightness.dark,
                 systemNavigationBarColor: palette.background,
-                systemNavigationBarIconBrightness:
-                    brightness == Brightness.dark ? Brightness.light : Brightness.dark,
+                systemNavigationBarIconBrightness: brightness == Brightness.dark
+                    ? Brightness.light
+                    : Brightness.dark,
               ),
             );
 
@@ -72,9 +82,9 @@ class DailyThesisApp extends StatelessWidget {
               valueListenable: TextScaleController.instance.notifier,
               builder: (context, textScale, _) {
                 return MediaQuery(
-                  data: MediaQuery.of(context).copyWith(
-                    textScaler: TextScaler.linear(textScale.factor),
-                  ),
+                  data: MediaQuery.of(
+                    context,
+                  ).copyWith(textScaler: TextScaler.linear(textScale.factor)),
                   child: child ?? const SizedBox.shrink(),
                 );
               },

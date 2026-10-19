@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
@@ -9,6 +10,7 @@ import 'package:http/http.dart' as http;
 /// terminated (not just backgrounded).
 @pragma('vm:entry-point')
 Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  await Firebase.initializeApp();
   debugPrint('Background push received: ${message.messageId}');
 }
 
@@ -49,7 +51,10 @@ class NotificationService {
   /// current `UserProfile.matchedSubjects` — pass an empty list if
   /// onboarding hasn't completed yet, the Worker falls back to a
   /// generic subject in that case.
-  Future<void> initialize(String userId, {List<String> subjects = const []}) async {
+  Future<void> initialize(
+    String userId, {
+    List<String> subjects = const [],
+  }) async {
     _userId = userId;
     _subjects = subjects;
     try {
@@ -61,14 +66,24 @@ class NotificationService {
       );
       debugPrint('Notification permission: ${settings.authorizationStatus}');
 
+      if (defaultTargetPlatform == TargetPlatform.iOS) {
+        await _messaging.setForegroundNotificationPresentationOptions(
+          alert: true,
+          badge: true,
+          sound: true,
+        );
+      }
+
       await _localNotifications
           .resolvePlatformSpecificImplementation<
-              AndroidFlutterLocalNotificationsPlugin>()
+            AndroidFlutterLocalNotificationsPlugin
+          >()
           ?.createNotificationChannel(_channel);
 
       await _localNotifications.initialize(
         const InitializationSettings(
           android: AndroidInitializationSettings('@mipmap/ic_launcher'),
+          iOS: DarwinInitializationSettings(),
         ),
       );
 
@@ -138,6 +153,11 @@ class NotificationService {
   }
 
   void _showForegroundNotification(RemoteMessage message) {
+    // iOS displays foreground alerts through the presentation options set
+    // during initialization. The Android local notification path below would
+    // otherwise duplicate the alert on iPhone.
+    if (defaultTargetPlatform == TargetPlatform.iOS) return;
+
     final notification = message.notification;
     if (notification == null) return;
 
