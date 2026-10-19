@@ -14,21 +14,35 @@ class _RevealState extends State<Reveal> with SingleTickerProviderStateMixin {
   late AnimationController _ctrl;
   late Animation<double> _opacity;
   late Animation<Offset> _slide;
+  bool _hasStarted = false;
 
   @override
   void initState() {
     super.initState();
     _ctrl = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 700),
+      duration: const Duration(milliseconds: 360),
     );
-    final curve =
-        CurvedAnimation(parent: _ctrl, curve: Curves.easeOutCubic);
+    final curve = CurvedAnimation(parent: _ctrl, curve: Curves.easeOutCubic);
     _opacity = Tween<double>(begin: 0.0, end: 1.0).animate(curve);
-    _slide =
-        Tween<Offset>(begin: const Offset(0, 0.03), end: Offset.zero).animate(curve);
+    _slide = Tween<Offset>(
+      begin: const Offset(0, 0.02),
+      end: Offset.zero,
+    ).animate(curve);
+  }
 
-    Future.delayed(widget.delay, () {
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_hasStarted) return;
+    _hasStarted = true;
+
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _ctrl.value = 1;
+      return;
+    }
+
+    Future<void>.delayed(widget.delay, () {
       if (mounted) _ctrl.forward();
     });
   }

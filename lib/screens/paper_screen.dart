@@ -17,6 +17,7 @@ import '../services/paper_history_storage.dart';
 import '../services/paper_service.dart';
 import '../services/local_recommendation_service.dart';
 import '../services/profile_storage.dart';
+import '../services/saved_papers_storage.dart';
 import '../services/streak_service.dart';
 import '../services/clock_skew.dart';
 import '../widgets/shimmer_loader.dart';
@@ -29,6 +30,7 @@ import '../widgets/streak_badge.dart';
 import '../widgets/streak_celebration.dart';
 import '../theme/app_theme.dart';
 import 'history_screen.dart';
+import 'library_screen.dart';
 import 'settings_screen.dart';
 
 class PaperScreen extends StatefulWidget {
@@ -38,14 +40,14 @@ class PaperScreen extends StatefulWidget {
   State<PaperScreen> createState() => _PaperScreenState();
 }
 
-class _PaperScreenState extends State<PaperScreen>
-    with TickerProviderStateMixin, WidgetsBindingObserver {
+class _PaperScreenState extends State<PaperScreen> with WidgetsBindingObserver {
   final _service = PaperService();
   final _recommendationService = LocalRecommendationService();
   final _profileStorage = ProfileStorage();
   final _historyStorage = PaperHistoryStorage();
   final _feedbackStorage = FeedbackStorage();
   final _likedStorage = LikedPapersStorage();
+  final _savedPapersStorage = SavedPapersStorage();
   final _dismissedStorage = DismissedPapersStorage();
   final _bufferStorage = PaperBufferStorage();
   final _streakService = StreakService();
@@ -72,10 +74,15 @@ class _PaperScreenState extends State<PaperScreen>
   String? _currentSubject;
   int _subjectRotationIndex = 0;
   int _attempt = 0;
+  bool _isFetchingDaily = false;
   final Set<String> _shownUrlsToday = {};
 
   Set<String> _likedUrls = {};
-  bool get _isCurrentLiked => _paper != null && _likedUrls.contains(_paper!.url);
+  Set<String> _savedUrls = {};
+  bool get _isCurrentLiked =>
+      _paper != null && _likedUrls.contains(_paper!.url);
+  bool get _isCurrentSaved =>
+      _paper != null && _savedUrls.contains(_paper!.url);
 
   // Full streak state shown in the app bar badge. Refreshed after
   // evaluateOnOpen() and after every recordActivity() call. StreakBadge
@@ -89,25 +96,19 @@ class _PaperScreenState extends State<PaperScreen>
   Timer? _sessionTimer;
   bool _streakLoggedToday = false;
 
-  late AnimationController _refreshCtrl;
-
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _refreshCtrl = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 800),
-    );
     _loadProfileAndFetch();
     _loadLikedUrls();
+    _loadSavedUrls();
     _initStreak();
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _refreshCtrl.dispose();
     _sessionTimer?.cancel();
     super.dispose();
   }
@@ -140,11 +141,15 @@ class _PaperScreenState extends State<PaperScreen>
 
     if (result.freezeConsumed) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) showFreezeUsedPopup(context, currentStreak: result.currentStreak);
+        if (mounted) {
+          showFreezeUsedPopup(context, currentStreak: result.currentStreak);
+        }
       });
     } else if (result.streakBroken) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) showStreakBrokenPopup(context, previousStreak: result.previousStreak);
+        if (mounted) {
+          showStreakBrokenPopup(context, previousStreak: result.previousStreak);
+        }
       });
     }
 
@@ -152,7 +157,10 @@ class _PaperScreenState extends State<PaperScreen>
     if (!mounted) return;
     _sessionTimer?.cancel();
     if (!_streakLoggedToday) {
-      _sessionTimer = Timer(const Duration(minutes: 1), _onSessionThresholdReached);
+      _sessionTimer = Timer(
+        const Duration(minutes: 1),
+        _onSessionThresholdReached,
+      );
     }
   }
 
@@ -193,7 +201,8 @@ class _PaperScreenState extends State<PaperScreen>
     if (_lastLoadedDay == null || isLoading) return;
 
     final now = DateTime.now();
-    final sameDay = _lastLoadedDay!.year == now.year &&
+    final sameDay =
+        _lastLoadedDay!.year == now.year &&
         _lastLoadedDay!.month == now.month &&
         _lastLoadedDay!.day == now.day;
 
@@ -205,6 +214,11 @@ class _PaperScreenState extends State<PaperScreen>
   Future<void> _loadLikedUrls() async {
     final urls = await _likedStorage.load();
     if (mounted) setState(() => _likedUrls = urls);
+  }
+
+  Future<void> _loadSavedUrls() async {
+    final urls = await _savedPapersStorage.loadUrls();
+    if (mounted) setState(() => _savedUrls = urls);
   }
 
   Future<void> _loadProfileAndFetch() async {
@@ -220,24 +234,25 @@ class _PaperScreenState extends State<PaperScreen>
     // Find the most recent non-disliked paper saved today.
     // This ensures that skipping a paper earlier in the day won't cause
     // the app to force a new fetch on reopen.
-    final todayEntry = history.cast<PaperHistoryEntry?>().firstWhere(
-      (entry) {
-        if (entry == null) return false;
-        final viewedAt = entry.viewedAt;
-        final isToday = viewedAt.year == now.year &&
-            viewedAt.month == now.month &&
-            viewedAt.day == now.day;
-        return isToday && entry.status != PaperFeedbackStatus.disliked;
-      },
-      orElse: () => null,
-    );
+    final todayEntry = history.cast<PaperHistoryEntry?>().firstWhere((entry) {
+      if (entry == null) return false;
+      final viewedAt = entry.viewedAt;
+      final isToday =
+          viewedAt.year == now.year &&
+          viewedAt.month == now.month &&
+          viewedAt.day == now.day;
+      return isToday && entry.status != PaperFeedbackStatus.disliked;
+    }, orElse: () => null);
 
     if (todayEntry != null) {
       _dislikeCounts = await _feedbackStorage.loadDislikeCounts();
       final subjects = selectedSubjects ?? const [];
       _currentSubject = subjects.isEmpty
           ? null
-          : InterestMatcher.subjectForToday(subjects, dislikeCounts: _dislikeCounts);
+          : InterestMatcher.subjectForToday(
+              subjects,
+              dislikeCounts: _dislikeCounts,
+            );
       setState(() {
         _paper = todayEntry.paper;
         isLoading = false;
@@ -281,7 +296,9 @@ class _PaperScreenState extends State<PaperScreen>
           : selectedSubjects!;
 
       for (final subject in subjects) {
-        if (await _bufferStorage.count() >= PaperBufferStorage.targetSize) break;
+        if (await _bufferStorage.count() >= PaperBufferStorage.targetSize) {
+          break;
+        }
         final candidates = await _service.fetchCandidates(
           subject: subject == 'all' ? null : subject,
           excludeUrls: excludeUrls,
@@ -315,12 +332,13 @@ class _PaperScreenState extends State<PaperScreen>
   }
 
   Future<void> fetchDailyPaper() async {
+    if (_isFetchingDaily) return;
+    _isFetchingDaily = true;
     setState(() {
       isLoading = true;
       hasError = false;
       _isOffline = false;
     });
-    _refreshCtrl.repeat();
 
     _shownUrlsToday.clear();
     _attempt = 0;
@@ -331,7 +349,10 @@ class _PaperScreenState extends State<PaperScreen>
       final subjects = selectedSubjects ?? const [];
       _currentSubject = subjects.isEmpty
           ? null
-          : InterestMatcher.subjectForToday(subjects, dislikeCounts: _dislikeCounts);
+          : InterestMatcher.subjectForToday(
+              subjects,
+              dislikeCounts: _dislikeCounts,
+            );
 
       if (!await _hasConnection()) {
         if (await _tryServeFromBuffer()) return;
@@ -349,7 +370,8 @@ class _PaperScreenState extends State<PaperScreen>
         candidates,
         interests: _profile?.interests ?? const [],
       );
-      final selectedPaper = paper ??
+      final selectedPaper =
+          paper ??
           await _service.fetchDailyPaper(
             matchedSubjects: selectedSubjects,
             dislikeCounts: _dislikeCounts,
@@ -374,8 +396,7 @@ class _PaperScreenState extends State<PaperScreen>
       if (await _tryServeFromBuffer()) return;
       _setErrorState('Connection Error', e.toString());
     } finally {
-      _refreshCtrl.stop();
-      _refreshCtrl.animateTo(1.0, curve: Curves.easeOut);
+      _isFetchingDaily = false;
     }
   }
 
@@ -387,11 +408,15 @@ class _PaperScreenState extends State<PaperScreen>
 
     if (_currentSubject != null) {
       await _feedbackStorage.recordNotForMe(_currentSubject!);
-      _dislikeCounts[_currentSubject!] = (_dislikeCounts[_currentSubject!] ?? 0) + 1;
+      _dislikeCounts[_currentSubject!] =
+          (_dislikeCounts[_currentSubject!] ?? 0) + 1;
     }
 
     await _dismissedStorage.add(dismissedPaper.url);
-    await _historyStorage.updateStatus(dismissedPaper.url, PaperFeedbackStatus.disliked);
+    await _historyStorage.updateStatus(
+      dismissedPaper.url,
+      PaperFeedbackStatus.disliked,
+    );
     await _recommendationService.recordDismissal(dismissedPaper);
 
     await _getAnotherPaper();
@@ -402,7 +427,6 @@ class _PaperScreenState extends State<PaperScreen>
       isLoading = true;
       hasError = false;
     });
-    _refreshCtrl.repeat();
 
     try {
       if (_paper != null) _shownUrlsToday.add(_paper!.url);
@@ -432,7 +456,8 @@ class _PaperScreenState extends State<PaperScreen>
         candidates,
         interests: _profile?.interests ?? const [],
       );
-      final selectedPaper = newPaper ??
+      final selectedPaper =
+          newPaper ??
           await _service.fetchAnotherPaper(
             subject: nextSubject,
             attempt: _attempt++,
@@ -459,10 +484,7 @@ class _PaperScreenState extends State<PaperScreen>
     } on Exception catch (e) {
       if (await _tryServeFromBuffer()) return;
       _setErrorState('Connection Error', e.toString());
-    } finally {
-      _refreshCtrl.stop();
-      _refreshCtrl.animateTo(1.0, curve: Curves.easeOut);
-    }
+    } finally {}
   }
 
   Future<void> _toggleLike() async {
@@ -490,6 +512,33 @@ class _PaperScreenState extends State<PaperScreen>
     );
   }
 
+  Future<void> _toggleSavedPaper() async {
+    final paper = _paper;
+    if (paper == null || hasError || paper.url.isEmpty) return;
+    HapticFeedback.mediumImpact();
+
+    final saved = !_savedUrls.contains(paper.url);
+    setState(() {
+      if (saved) {
+        _savedUrls.add(paper.url);
+      } else {
+        _savedUrls.remove(paper.url);
+      }
+    });
+
+    if (saved) {
+      await _savedPapersStorage.save(paper);
+    } else {
+      await _savedPapersStorage.remove(paper.url);
+    }
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(saved ? 'Saved to Library' : 'Removed from Library'),
+      ),
+    );
+  }
+
   void _setErrorState(String title, String message) {
     setState(() {
       errorTitle = title;
@@ -506,7 +555,10 @@ class _PaperScreenState extends State<PaperScreen>
       final uri = Uri.parse(url);
       final launchUri = uri.hasScheme ? uri : Uri.parse('https://$url');
 
-      final opened = await launchUrl(launchUri, mode: LaunchMode.externalApplication);
+      final opened = await launchUrl(
+        launchUri,
+        mode: LaunchMode.externalApplication,
+      );
       if (!opened && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Could not open the publication link')),
@@ -520,19 +572,25 @@ class _PaperScreenState extends State<PaperScreen>
     HapticFeedback.lightImpact();
     await Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => SettingsScreen(
-          profile: _profile!,
-          onSaved: _loadProfileAndFetch,
-        ),
+        builder: (_) =>
+            SettingsScreen(profile: _profile!, onSaved: _loadProfileAndFetch),
       ),
     );
   }
 
   Future<void> _openHistory() async {
     HapticFeedback.lightImpact();
-    await Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => const HistoryScreen()),
-    );
+    await Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => const HistoryScreen()));
+  }
+
+  Future<void> _openLibrary() async {
+    HapticFeedback.lightImpact();
+    await Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => const LibraryScreen()));
+    await _loadSavedUrls();
   }
 
   Future<void> _openActionsMenu() async {
@@ -590,6 +648,12 @@ class _PaperScreenState extends State<PaperScreen>
                   ),
                   const SizedBox(height: 8),
                   _MenuAction(
+                    icon: Icons.bookmarks_outlined,
+                    label: 'Library',
+                    onTap: () => Navigator.of(context).pop('library'),
+                  ),
+                  const SizedBox(height: 8),
+                  _MenuAction(
                     icon: Icons.tune_rounded,
                     label: 'Preferences & Feeds',
                     onTap: () => Navigator.of(context).pop('settings'),
@@ -610,6 +674,9 @@ class _PaperScreenState extends State<PaperScreen>
         break;
       case 'history':
         await _openHistory();
+        break;
+      case 'library':
+        await _openLibrary();
         break;
       case 'settings':
         await _openSettings();
@@ -636,7 +703,9 @@ class _PaperScreenState extends State<PaperScreen>
       paper.title,
       if (paper.authors.isNotEmpty) paper.authors,
       if (paper.journal.isNotEmpty)
-        paper.publishYear != null ? '${paper.journal}, ${paper.publishYear}' : paper.journal,
+        paper.publishYear != null
+            ? '${paper.journal}, ${paper.publishYear}'
+            : paper.journal,
       paper.url,
     ].where((line) => line.isNotEmpty).join('\n');
 
@@ -662,7 +731,9 @@ class _PaperScreenState extends State<PaperScreen>
     }
 
     final promptBuffer = StringBuffer()
-      ..writeln('Can you explain this paper in plain language and walk me through its key contributions?')
+      ..writeln(
+        'Can you explain this paper in plain language and walk me through its key contributions?',
+      )
       ..writeln()
       ..writeln('Title: ${paper.title}');
     if (paper.authors.isNotEmpty) {
@@ -674,10 +745,11 @@ class _PaperScreenState extends State<PaperScreen>
 
     final uri = Uri.https('chatgpt.com', '/', {'q': promptBuffer.toString()});
 
-    if (!await launchUrl(uri, mode: LaunchMode.externalApplication) && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Could not open ChatGPT')),
-      );
+    if (!await launchUrl(uri, mode: LaunchMode.externalApplication) &&
+        mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Could not open ChatGPT')));
     }
   }
 
@@ -696,9 +768,7 @@ class _PaperScreenState extends State<PaperScreen>
           alignment: Alignment.centerLeft,
           child: Padding(
             padding: const EdgeInsets.only(left: 16.0),
-            child: StreakBadge(
-              streakData: _streakData,
-            ),
+            child: StreakBadge(streakData: _streakData),
           ),
         ),
         title: Text(
@@ -713,12 +783,17 @@ class _PaperScreenState extends State<PaperScreen>
         centerTitle: true,
         actions: [
           SizedBox(
-            width: 100, // Matches leadingWidth so title centers exactly on-screen
+            width:
+                100, // Matches leadingWidth so title centers exactly on-screen
             child: Row(
               mainAxisAlignment: MainAxisAlignment.end,
               children: [
                 IconButton(
-                  icon: Icon(Icons.menu_rounded, size: 24, color: palette.textPrimary),
+                  icon: Icon(
+                    Icons.menu_rounded,
+                    size: 24,
+                    color: palette.textPrimary,
+                  ),
                   onPressed: _openActionsMenu,
                 ),
                 const SizedBox(width: 8),
@@ -728,11 +803,16 @@ class _PaperScreenState extends State<PaperScreen>
         ],
       ),
       body: SingleChildScrollView(
-        physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
+        physics: const AlwaysScrollableScrollPhysics(
+          parent: BouncingScrollPhysics(),
+        ),
         child: Center(
           child: Container(
             constraints: const BoxConstraints(maxWidth: 620),
-            padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
+            padding: const EdgeInsets.symmetric(
+              horizontal: 24.0,
+              vertical: 16.0,
+            ),
             child: AnimatedSwitcher(
               duration: const Duration(milliseconds: 300),
               switchInCurve: Curves.easeOut,
@@ -840,32 +920,42 @@ class _PaperScreenState extends State<PaperScreen>
               children: [
                 Expanded(
                   child: PressButton(
-                    onPressed: _toggleLike,
+                    onPressed: _toggleSavedPaper,
                     child: Container(
                       height: 48,
                       decoration: BoxDecoration(
-                        color: _isCurrentLiked ? palette.textPrimary.withValues(alpha: 0.08) : palette.buttonSecondary,
+                        color: _isCurrentSaved
+                            ? palette.textPrimary.withValues(alpha: 0.08)
+                            : palette.buttonSecondary,
                         borderRadius: BorderRadius.circular(12),
                         border: Border.all(
-                          color: _isCurrentLiked ? palette.textPrimary : palette.buttonSecondaryBorder,
-                          width: _isCurrentLiked ? 1.5 : 1.0,
+                          color: _isCurrentSaved
+                              ? palette.textPrimary
+                              : palette.buttonSecondaryBorder,
+                          width: _isCurrentSaved ? 1.5 : 1.0,
                         ),
                       ),
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           Icon(
-                            _isCurrentLiked ? Icons.thumb_up_rounded : Icons.thumb_up_outlined,
+                            _isCurrentSaved
+                                ? Icons.bookmark_rounded
+                                : Icons.bookmark_border_rounded,
                             size: 16,
-                            color: _isCurrentLiked ? palette.textPrimary : palette.buttonSecondaryText,
+                            color: _isCurrentSaved
+                                ? palette.textPrimary
+                                : palette.buttonSecondaryText,
                           ),
                           const SizedBox(width: 6),
                           Text(
-                            'Like',
+                            'Save',
                             style: TextStyle(
                               fontSize: 13,
                               fontWeight: FontWeight.w600,
-                              color: _isCurrentLiked ? palette.textPrimary : palette.buttonSecondaryText,
+                              color: _isCurrentSaved
+                                  ? palette.textPrimary
+                                  : palette.buttonSecondaryText,
                             ),
                           ),
                         ],
@@ -873,7 +963,53 @@ class _PaperScreenState extends State<PaperScreen>
                     ),
                   ),
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: PressButton(
+                    onPressed: _toggleLike,
+                    child: Container(
+                      height: 48,
+                      decoration: BoxDecoration(
+                        color: _isCurrentLiked
+                            ? palette.textPrimary.withValues(alpha: 0.08)
+                            : palette.buttonSecondary,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: _isCurrentLiked
+                              ? palette.textPrimary
+                              : palette.buttonSecondaryBorder,
+                          width: _isCurrentLiked ? 1.5 : 1.0,
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            _isCurrentLiked
+                                ? Icons.thumb_up_rounded
+                                : Icons.thumb_up_outlined,
+                            size: 16,
+                            color: _isCurrentLiked
+                                ? palette.textPrimary
+                                : palette.buttonSecondaryText,
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            'Like',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              color: _isCurrentLiked
+                                  ? palette.textPrimary
+                                  : palette.buttonSecondaryText,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
                 Expanded(
                   child: PressButton(
                     onPressed: _notForMe,
@@ -882,15 +1018,21 @@ class _PaperScreenState extends State<PaperScreen>
                       decoration: BoxDecoration(
                         color: palette.buttonSecondary,
                         borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: palette.buttonSecondaryBorder),
+                        border: Border.all(
+                          color: palette.buttonSecondaryBorder,
+                        ),
                       ),
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Icon(Icons.thumb_down_outlined, size: 16, color: palette.buttonSecondaryText),
+                          Icon(
+                            Icons.thumb_down_outlined,
+                            size: 16,
+                            color: palette.buttonSecondaryText,
+                          ),
                           const SizedBox(width: 6),
                           Text(
-                            'Skip Paper',
+                            'Skip',
                             style: TextStyle(
                               fontSize: 13,
                               fontWeight: FontWeight.w600,
@@ -956,10 +1098,7 @@ class _PaperScreenState extends State<PaperScreen>
                 child: const Center(
                   child: Text(
                     'Try Again',
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                    ),
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
                   ),
                 ),
               ),
@@ -984,7 +1123,9 @@ class _PaperScreenState extends State<PaperScreen>
           decoration: BoxDecoration(
             color: palette.buttonSecondary,
             borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: palette.buttonSecondaryBorder.withValues(alpha: 0.5)),
+            border: Border.all(
+              color: palette.buttonSecondaryBorder.withValues(alpha: 0.5),
+            ),
           ),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,

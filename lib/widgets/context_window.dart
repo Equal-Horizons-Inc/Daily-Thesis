@@ -42,12 +42,8 @@ class _ContextWindowState extends State<ContextWindow>
   _LoadState _loadState = _LoadState.idle;
   PaperContext? _context;
 
-  // Drives the skeleton loader's shimmer pulse while context is loading.
-  // Built eagerly in initState (below) rather than as a lazily-initialized
-  // `late final` field — a lazy initializer only runs on first read, and
-  // the only read path used to be inside dispose(), which constructed the
-  // controller (and its vsync ancestor lookup) after the widget was
-  // already deactivated.
+  // Drives the skeleton loader only while it is actually visible. Keeping
+  // this paused outside loading avoids an otherwise invisible 60fps ticker.
   late final AnimationController _shimmerCtrl;
 
   @override
@@ -56,7 +52,7 @@ class _ContextWindowState extends State<ContextWindow>
     _shimmerCtrl = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1100),
-    )..repeat(reverse: true);
+    );
     _expanded = widget.startExpanded;
     if (_expanded) {
       _fetch();
@@ -74,6 +70,7 @@ class _ContextWindowState extends State<ContextWindow>
         _context = null;
       });
       if (_expanded) _fetch();
+      if (!_expanded) _shimmerCtrl.stop();
     }
   }
 
@@ -88,6 +85,7 @@ class _ContextWindowState extends State<ContextWindow>
       return;
     }
     setState(() => _loadState = _LoadState.loading);
+    if (_expanded) _shimmerCtrl.repeat(reverse: true);
 
     try {
       final result = await _service.fetchContext(
@@ -109,6 +107,8 @@ class _ContextWindowState extends State<ContextWindow>
     } catch (_) {
       if (!mounted) return;
       setState(() => _loadState = _LoadState.error);
+    } finally {
+      _shimmerCtrl.stop();
     }
   }
 
@@ -116,6 +116,10 @@ class _ContextWindowState extends State<ContextWindow>
     setState(() => _expanded = !_expanded);
     if (_expanded && _loadState == _LoadState.idle) {
       _fetch();
+    } else if (_expanded && _loadState == _LoadState.loading) {
+      _shimmerCtrl.repeat(reverse: true);
+    } else if (!_expanded) {
+      _shimmerCtrl.stop();
     }
   }
 
@@ -298,31 +302,40 @@ class _ContextWindowState extends State<ContextWindow>
   /// pulse in opacity via [_shimmerCtrl] to read clearly as "loading"
   /// rather than a rendering glitch.
   Widget _buildSkeleton(AppPalette palette) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // Summary lines
-        _skeletonBar(palette, width: double.infinity, height: 13),
-        const SizedBox(height: 8),
-        _skeletonBar(palette, width: double.infinity, height: 13),
-        const SizedBox(height: 8),
-        _skeletonBar(palette, width: 160, height: 13),
+    return RepaintBoundary(
+      child: AnimatedBuilder(
+        animation: _shimmerCtrl,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Summary lines
+            _skeletonBar(palette, width: double.infinity, height: 13),
+            const SizedBox(height: 8),
+            _skeletonBar(palette, width: double.infinity, height: 13),
+            const SizedBox(height: 8),
+            _skeletonBar(palette, width: 160, height: 13),
 
-        const SizedBox(height: 18),
+            const SizedBox(height: 18),
 
-        // "KEY TERMS" label placeholder
-        _skeletonBar(palette, width: 68, height: 9),
-        const SizedBox(height: 10),
+            // "KEY TERMS" label placeholder
+            _skeletonBar(palette, width: 68, height: 9),
+            const SizedBox(height: 10),
 
-        // Key term rows (label + definition line)
-        _skeletonBar(palette, width: 90, height: 12),
-        const SizedBox(height: 6),
-        _skeletonBar(palette, width: double.infinity, height: 12),
-        const SizedBox(height: 14),
-        _skeletonBar(palette, width: 110, height: 12),
-        const SizedBox(height: 6),
-        _skeletonBar(palette, width: 200, height: 12),
-      ],
+            // Key term rows (label + definition line)
+            _skeletonBar(palette, width: 90, height: 12),
+            const SizedBox(height: 6),
+            _skeletonBar(palette, width: double.infinity, height: 12),
+            const SizedBox(height: 14),
+            _skeletonBar(palette, width: 110, height: 12),
+            const SizedBox(height: 6),
+            _skeletonBar(palette, width: 200, height: 12),
+          ],
+        ),
+        builder: (context, child) {
+          final opacity = 0.3 + (0.35 * _shimmerCtrl.value);
+          return Opacity(opacity: opacity, child: child);
+        },
+      ),
     );
   }
 
@@ -331,19 +344,13 @@ class _ContextWindowState extends State<ContextWindow>
     required double width,
     required double height,
   }) {
-    return AnimatedBuilder(
-      animation: _shimmerCtrl,
-      builder: (context, child) {
-        final opacity = 0.3 + (0.35 * _shimmerCtrl.value);
-        return Container(
-          width: width,
-          height: height,
-          decoration: BoxDecoration(
-            color: palette.textTertiary.withValues(alpha: opacity),
-            borderRadius: BorderRadius.circular(4),
-          ),
-        );
-      },
+    return Container(
+      width: width,
+      height: height,
+      decoration: BoxDecoration(
+        color: palette.textTertiary,
+        borderRadius: BorderRadius.circular(4),
+      ),
     );
   }
 
