@@ -1,12 +1,9 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'screens/paper_screen.dart';
 import 'screens/onboarding_screen.dart';
 import 'services/analytics_service.dart';
-import 'services/notification_service.dart';
 import 'services/profile_storage.dart';
 import 'services/text_scale_storage.dart';
 import 'services/theme_mode_storage.dart';
@@ -14,7 +11,6 @@ import 'theme/app_theme.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  unawaited(NotificationService.instance.refreshScheduleIfNeeded());
   await ThemeModeController.instance.load();
   await TextScaleController.instance.load();
 
@@ -34,6 +30,11 @@ Future<void> main() async {
 class DailyThesisApp extends StatelessWidget {
   const DailyThesisApp({super.key});
 
+  static final ThemeData _lightTheme =
+      buildAppTheme(AppPalette.light, Brightness.light);
+  static final ThemeData _darkTheme =
+      buildAppTheme(AppPalette.dark, Brightness.dark);
+
   @override
   Widget build(BuildContext context) {
     return ValueListenableBuilder<ThemeMode>(
@@ -42,9 +43,13 @@ class DailyThesisApp extends StatelessWidget {
         return MaterialApp(
           debugShowCheckedModeBanner: false,
           title: 'DailyThesis',
-          theme: buildAppTheme(AppPalette.light, Brightness.light),
-          darkTheme: buildAppTheme(AppPalette.dark, Brightness.dark),
+          theme: _lightTheme,
+          darkTheme: _darkTheme,
           themeMode: themeMode,
+          // Theme transitions rebuild large parts of the reading screen on
+          // every animation frame. Apply the palette immediately so mode
+          // changes stay responsive on lower-end devices.
+          themeAnimationDuration: Duration.zero,
           builder: (context, child) {
             final brightness = switch (themeMode) {
               ThemeMode.dark => Brightness.dark,

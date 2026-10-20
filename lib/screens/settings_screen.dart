@@ -1,3 +1,4 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../models/user_profile.dart';
@@ -25,6 +26,9 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
+  /// Set to false once reminders are verified on device.
+  static const _showTestButton = true;
+
   late TextEditingController _nameController;
   late Set<String> _selectedInterests;
   late ThemeMode _themeMode;
@@ -56,6 +60,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
     });
   }
 
+  void _toast(String message) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(message)));
+  }
+
   Future<void> _setReminderEnabled(bool enabled) async {
     setState(() => _updatingReminder = true);
     var success = false;
@@ -70,21 +80,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       if (success) _reminderEnabled = enabled;
     });
     if (!success) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Could not enable the reminder. Check notification settings and try again.',
-          ),
-        ),
-      );
-    } else if (enabled) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Daily reminder set for ${_reminderTime.format(context)}.',
-          ),
-        ),
-      );
+      _toast('Notifications are off. Allow them in Settings.');
     }
   }
 
@@ -97,18 +93,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     try {
       await NotificationService.instance.setTime(time.hour, time.minute);
       if (mounted) setState(() => _reminderTime = time);
-      if (mounted && _reminderEnabled) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Daily reminder updated to ${time.format(context)}.'),
-          ),
-        );
-      }
     } catch (_) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Could not update the reminder time.')),
-      );
+      _toast('Couldn’t update the time.');
     }
   }
 
@@ -116,19 +103,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
     try {
       await NotificationService.instance.sendTestNotification();
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Test scheduled. Leave the app; it should arrive in 10 seconds.',
-          ),
-          duration: Duration(seconds: 5),
-        ),
-      );
+      _toast('Test sent. Leave the app.');
     } catch (_) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Could not send a test notification.')),
-      );
+      _toast('Couldn’t send the test.');
     }
   }
 
@@ -181,9 +159,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     } catch (_) {
       if (!mounted) return;
       setState(() => _isSaving = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Could not save your preferences.')),
-      );
+      _toast('Could not save your preferences.');
     }
   }
 
@@ -267,76 +243,43 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       children: [
                         _SettingLabel('THEME', palette: palette),
                         const SizedBox(height: 10),
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: [
-                            _ThemeChoice(
-                              label: 'System',
-                              selected: _themeMode == ThemeMode.system,
-                              onTap: () => _setThemeMode(ThemeMode.system),
-                            ),
-                            _ThemeChoice(
-                              label: 'Light',
-                              selected: _themeMode == ThemeMode.light,
-                              onTap: () => _setThemeMode(ThemeMode.light),
-                            ),
-                            _ThemeChoice(
-                              label: 'Dark',
-                              selected: _themeMode == ThemeMode.dark,
-                              onTap: () => _setThemeMode(ThemeMode.dark),
-                            ),
-                          ],
+                        _Segmented<ThemeMode>(
+                          value: _themeMode,
+                          options: const {
+                            ThemeMode.system: 'System',
+                            ThemeMode.light: 'Light',
+                            ThemeMode.dark: 'Dark',
+                          },
+                          onChanged: _setThemeMode,
                         ),
                         const SizedBox(height: 20),
                         _SettingLabel('TEXT SIZE', palette: palette),
                         const SizedBox(height: 10),
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: [
-                            for (final scale in AppTextScale.values)
-                              _ThemeChoice(
-                                label: scale.label,
-                                selected: _textScale == scale,
-                                onTap: () => _setTextScale(scale),
-                              ),
-                          ],
+                        _Segmented<AppTextScale>(
+                          value: _textScale,
+                          options: {
+                            for (final s in AppTextScale.values)
+                              s: _shortLabel(s.label),
+                          },
+                          onChanged: _setTextScale,
                         ),
                       ],
                     ),
                   ),
                   _SettingsSection(
                     title: 'Daily reminder',
-                    subtitle: 'A private reminder scheduled on this device',
                     palette: palette,
-                    child: Column(
+                    trailing: Switch.adaptive(
+                      value: _reminderEnabled,
+                      onChanged: _reminderLoaded && !_updatingReminder
+                          ? _setReminderEnabled
+                          : null,
+                    ),
+                    child: !_reminderEnabled
+                        ? null
+                        : Column(
                       children: [
-                        SwitchListTile.adaptive(
-                          contentPadding: EdgeInsets.zero,
-                          title: Text(
-                            'Remind me each day',
-                            style: TextStyle(
-                              color: palette.textPrimary,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          subtitle: Text(
-                            'Get a nudge to read today’s paper',
-                            style: TextStyle(
-                              color: palette.textSecondary,
-                              fontSize: 13,
-                            ),
-                          ),
-                          value: _reminderEnabled,
-                          onChanged: _reminderLoaded && !_updatingReminder
-                              ? _setReminderEnabled
-                              : null,
-                        ),
-                        AnimatedOpacity(
-                          opacity: _reminderEnabled ? 1 : 0.55,
-                          duration: const Duration(milliseconds: 160),
-                          child: Material(
+                          Material(
                             color: palette.background,
                             borderRadius: BorderRadius.circular(14),
                             child: InkWell(
@@ -359,7 +302,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                     const SizedBox(width: 10),
                                     Expanded(
                                       child: Text(
-                                        'Reminder time',
+                                        'Time',
                                         style: TextStyle(
                                           color: palette.textPrimary,
                                         ),
@@ -383,22 +326,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               ),
                             ),
                           ),
-                        ),
-                        Align(
-                          alignment: Alignment.centerRight,
-                          child: TextButton.icon(
-                            onPressed:
-                                _reminderLoaded &&
-                                    _reminderEnabled &&
-                                    !_updatingReminder
-                                ? _sendTestReminder
-                                : null,
-                            icon: const Icon(
-                              Icons.notifications_active_outlined,
+                          if (_showTestButton)
+                            Align(
+                              alignment: Alignment.centerRight,
+                              child: TextButton.icon(
+                                onPressed: _updatingReminder
+                                    ? null
+                                    : _sendTestReminder,
+                                icon: const Icon(
+                                  Icons.notifications_active_outlined,
+                                ),
+                                label: const Text('Send test'),
+                              ),
                             ),
-                            label: const Text('Schedule test notification'),
-                          ),
-                        ),
                       ],
                     ),
                   ),
@@ -480,16 +420,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
 class _SettingsSection extends StatelessWidget {
   final String title;
-  final String subtitle;
+  final String? subtitle;
   final AppPalette palette;
-  final Widget child;
+  final Widget? child;
   final Widget? trailing;
 
   const _SettingsSection({
     required this.title,
-    required this.subtitle,
     required this.palette,
-    required this.child,
+    this.child,
+    this.subtitle,
     this.trailing,
   });
 
@@ -510,7 +450,7 @@ class _SettingsSection extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
+                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
                   Expanded(
                     child: Column(
@@ -524,15 +464,17 @@ class _SettingsSection extends StatelessWidget {
                             color: palette.textPrimary,
                           ),
                         ),
-                        const SizedBox(height: 4),
-                        Text(
-                          subtitle,
-                          style: TextStyle(
-                            fontSize: 13,
-                            height: 1.35,
-                            color: palette.textSecondary,
+                        if (subtitle != null) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            subtitle!,
+                            style: TextStyle(
+                              fontSize: 13,
+                              height: 1.35,
+                              color: palette.textSecondary,
+                            ),
                           ),
-                        ),
+                        ],
                       ],
                     ),
                   ),
@@ -542,8 +484,10 @@ class _SettingsSection extends StatelessWidget {
                   ],
                 ],
               ),
-              const SizedBox(height: 16),
-              child,
+              if (child != null) ...[
+                SizedBox(height: subtitle != null ? 16 : 12),
+                child!,
+              ],
             ],
           ),
         ),
@@ -570,46 +514,54 @@ class _SettingLabel extends StatelessWidget {
   );
 }
 
-class _ThemeChoice extends StatelessWidget {
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
+/// "Extra Large" -> "Extra" so four segments fit on small phones.
+String _shortLabel(String label) =>
+    label.replaceAll(RegExp(r'\s+large$', caseSensitive: false), '');
 
-  const _ThemeChoice({
-    required this.label,
-    required this.selected,
-    required this.onTap,
+class _Segmented<T extends Object> extends StatelessWidget {
+  final T value;
+  final Map<T, String> options;
+  final ValueChanged<T> onChanged;
+
+  const _Segmented({
+    required this.value,
+    required this.options,
+    required this.onChanged,
   });
 
   @override
   Widget build(BuildContext context) {
     final palette = AppPalette.of(context);
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        decoration: BoxDecoration(
-          color: selected
-              ? palette.chipSelectedBackground
-              : palette.chipUnselectedBackground,
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(
-            color: selected
-                ? palette.chipSelectedBorder
-                : palette.chipUnselectedBorder,
-          ),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w600,
-            color: selected
-                ? palette.chipSelectedText
-                : palette.chipUnselectedText,
-          ),
-        ),
+    return SizedBox(
+      width: double.infinity,
+      child: CupertinoSlidingSegmentedControl<T>(
+        groupValue: value,
+        backgroundColor: palette.chipUnselectedBackground,
+        thumbColor: palette.chipSelectedBackground,
+        onValueChanged: (v) {
+          if (v != null) onChanged(v);
+        },
+        children: {
+          for (final entry in options.entries)
+            entry.key: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  entry.value,
+                  maxLines: 1,
+                  softWrap: false,
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: entry.key == value
+                        ? palette.chipSelectedText
+                        : palette.chipUnselectedText,
+                  ),
+                ),
+              ),
+            ),
+        },
       ),
     );
   }

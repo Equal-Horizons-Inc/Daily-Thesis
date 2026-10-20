@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_timezone/flutter_timezone.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -30,8 +31,10 @@ class NotificationService {
   static const _hourKey = 'daily_reminder_hour_v1';
   static const _minuteKey = 'daily_reminder_minute_v1';
   static const _notificationId = 7301;
-  static const _reminderNotificationCount = 60;
-  static const _testNotificationId = 7399;
+  static const _previousRollingScheduleCount = 60;
+  static const _diagnosticsChannel = MethodChannel(
+    'daily_thesis/notification_diagnostics',
+  );
   static const _channel = AndroidNotificationChannel(
     'daily_thesis_reminder',
     'Daily paper reminder',
@@ -44,6 +47,11 @@ class NotificationService {
   bool _initialized = false;
 
   Future<DailyReminderSettings> loadSettings() async {
+    if (!kIsWeb &&
+        (defaultTargetPlatform == TargetPlatform.android ||
+            defaultTargetPlatform == TargetPlatform.iOS)) {
+      await _initialize();
+    }
     final prefs = await SharedPreferences.getInstance();
     return DailyReminderSettings(
       enabled: prefs.getBool(_enabledKey) ?? false,
@@ -57,7 +65,7 @@ class NotificationService {
     if (!enabled) {
       if (!kIsWeb) {
         await _initialize();
-        await _cancelReminderNotifications();
+        await _notifications.cancel(_notificationId);
       }
       await prefs.setBool(_enabledKey, false);
       return true;
@@ -94,34 +102,13 @@ class NotificationService {
     }
   }
 
-  Future<void> refreshScheduleIfNeeded() async {
-    final settings = await loadSettings();
-    if (!settings.enabled || kIsWeb) return;
-
-    try {
-      await _initialize();
-      final pending = await _notifications.pendingNotificationRequests();
-      final pendingReminderCount = pending
-          .where(
-            (request) =>
-                request.id >= _notificationId &&
-                request.id < _notificationId + _reminderNotificationCount,
-          )
-          .length;
-      if (pendingReminderCount >= _reminderNotificationCount ~/ 2) return;
-      await _schedule(settings.hour, settings.minute);
-    } catch (error) {
-      debugPrint('Could not refresh daily reminders: $error');
-    }
-  }
-
   Future<void> sendTestNotification() async {
     await _initialize();
     final scheduledAt = tz.TZDateTime.now(
       tz.local,
     ).add(const Duration(seconds: 10));
     await _notifications.zonedSchedule(
-      _testNotificationId,
+      _notificationId + 1,
       'Daily Thesis test notification',
       'Notifications are working on this device.',
       scheduledAt,
@@ -146,7 +133,8 @@ class NotificationService {
     );
 
     final pending = await _notifications.pendingNotificationRequests();
-    if (!pending.any((request) => request.id == _testNotificationId)) {
+    await _logNativeNotificationState();
+    if (!pending.any((request) => request.id == _notificationId + 1)) {
       throw StateError(
         'The operating system did not retain the test notification.',
       );
@@ -158,7 +146,11 @@ class NotificationService {
     await _notifications.initialize(
       const InitializationSettings(
         android: AndroidInitializationSettings('@mipmap/ic_launcher'),
-        iOS: DarwinInitializationSettings(),
+        iOS: DarwinInitializationSettings(
+          requestAlertPermission: false,
+          requestBadgePermission: false,
+          requestSoundPermission: false,
+        ),
       ),
     );
     await _notifications
@@ -169,6 +161,10 @@ class NotificationService {
     tz_data.initializeTimeZones();
     final timezoneInfo = await FlutterTimezone.getLocalTimezone();
     tz.setLocalLocation(tz.getLocation(timezoneInfo.identifier));
+    // Remove the extra alarms created by the temporary rolling-schedule build.
+    for (var offset = 1; offset < _previousRollingScheduleCount; offset++) {
+      await _notifications.cancel(_notificationId + offset);
+    }
     _initialized = true;
   }
 
@@ -196,97 +192,71 @@ class NotificationService {
   }
 
   Future<void> _schedule(int hour, int minute) async {
-    await _cancelReminderNotifications();
-
     final now = tz.TZDateTime.now(tz.local);
-    final today = DateTime(now.year, now.month, now.day);
-    final todayAtReminderTime = tz.TZDateTime(
+    var next = tz.TZDateTime(
       tz.local,
-      today.year,
-      today.month,
-      today.day,
+      now.year,
+      now.month,
+      now.day,
       hour,
       minute,
     );
-    final firstDayOffset = todayAtReminderTime.isAfter(now) ? 0 : 1;
-    final firstCalendarDate = DateTime(
-      today.year,
-      today.month,
-      today.day + firstDayOffset,
-    );
-    final firstScheduledDate = tz.TZDateTime(
-      tz.local,
-      firstCalendarDate.year,
-      firstCalendarDate.month,
-      firstCalendarDate.day,
-      hour,
-      minute,
-    );
-
-    for (var day = 0; day < _reminderNotificationCount; day++) {
-      final calendarDate = DateTime(
-        firstCalendarDate.year,
-        firstCalendarDate.month,
-        firstCalendarDate.day + day,
-      );
-      final scheduledDate = tz.TZDateTime(
+    if (!next.isAfter(now)) {
+      next = tz.TZDateTime(
         tz.local,
-        calendarDate.year,
-        calendarDate.month,
-        calendarDate.day,
+        now.year,
+        now.month,
+        now.day + 1,
         hour,
         minute,
       );
-
-      await _notifications.zonedSchedule(
-        _notificationId + day,
-        'Your daily paper is ready',
-        'Take a few minutes to explore today’s research recommendation.',
-        scheduledDate,
-        const NotificationDetails(
-          android: AndroidNotificationDetails(
-            'daily_thesis_reminder',
-            'Daily paper reminder',
-            channelDescription: 'A reminder to read your daily research paper',
-            importance: Importance.defaultImportance,
-            priority: Priority.defaultPriority,
-          ),
-          iOS: DarwinNotificationDetails(
-            presentAlert: true,
-            presentBanner: true,
-            presentList: true,
-            presentSound: true,
-          ),
-        ),
-        androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
-        uiLocalNotificationDateInterpretation:
-            UILocalNotificationDateInterpretation.wallClockTime,
-      );
     }
 
+    await _notifications.zonedSchedule(
+      _notificationId,
+      'Your daily paper is ready',
+      'Take a few minutes to explore today’s research recommendation.',
+      next,
+      const NotificationDetails(
+        android: AndroidNotificationDetails(
+          'daily_thesis_reminder',
+          'Daily paper reminder',
+          channelDescription: 'A reminder to read your daily research paper',
+          importance: Importance.defaultImportance,
+          priority: Priority.defaultPriority,
+        ),
+        iOS: DarwinNotificationDetails(
+          presentAlert: true,
+          presentBanner: true,
+          presentList: true,
+          presentSound: true,
+        ),
+      ),
+      androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+      uiLocalNotificationDateInterpretation:
+          UILocalNotificationDateInterpretation.wallClockTime,
+      matchDateTimeComponents: DateTimeComponents.time,
+    );
+
     final pending = await _notifications.pendingNotificationRequests();
-    final pendingReminderCount = pending
-        .where(
-          (request) =>
-              request.id >= _notificationId &&
-              request.id < _notificationId + _reminderNotificationCount,
-        )
-        .length;
-    if (pendingReminderCount != _reminderNotificationCount) {
+    await _logNativeNotificationState();
+    if (!pending.any((request) => request.id == _notificationId)) {
       throw StateError(
-        'The operating system retained $pendingReminderCount of '
-        '$_reminderNotificationCount daily reminders.',
+        'The operating system did not retain the daily reminder.',
       );
     }
     debugPrint(
-      'Daily reminders scheduled from ${firstScheduledDate.toLocal()} '
-      '(${tz.local.name}); pending daily reminders: $pendingReminderCount',
+      'Daily reminder scheduled for ${next.toLocal()} (${tz.local.name}); '
+      'pending reminders: ${pending.length}',
     );
   }
 
-  Future<void> _cancelReminderNotifications() async {
-    for (var day = 0; day < _reminderNotificationCount; day++) {
-      await _notifications.cancel(_notificationId + day);
+  Future<void> _logNativeNotificationState() async {
+    if (defaultTargetPlatform != TargetPlatform.iOS) return;
+    try {
+      await _diagnosticsChannel.invokeMethod<void>('logNotificationState');
+    } catch (error) {
+      debugPrint('Could not log native notification state: $error');
     }
   }
 }
