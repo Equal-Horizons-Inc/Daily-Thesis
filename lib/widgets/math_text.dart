@@ -36,20 +36,23 @@ class _MathTextState extends State<MathText> {
 
   @override
   void dispose() {
+    _disposeRecognizers();
+    super.dispose();
+  }
+
+  void _disposeRecognizers() {
     for (final r in _recognizers) {
       r.dispose();
     }
-    super.dispose();
+    _recognizers.clear();
   }
 
   @override
   void didUpdateWidget(covariant MathText oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.content != widget.content) {
-      for (final r in _recognizers) {
-        r.dispose();
-      }
-      _recognizers.clear();
+    if (oldWidget.content != widget.content ||
+        oldWidget.style != widget.style) {
+      _disposeRecognizers();
     }
   }
 
@@ -64,14 +67,17 @@ class _MathTextState extends State<MathText> {
   /// the end of a sentence (. , ) ] etc.) is trimmed off separately so
   /// "see https://github.com/foo/bar." doesn't swallow the period into
   /// the link.
-  static final RegExp _urlPattern = RegExp(
-    r'https?://[^\s<>"]+',
-  );
+  static final RegExp _urlPattern = RegExp(r'https?://[^\s<>"]+');
 
   static final RegExp _trailingPunctuation = RegExp(r'[.,;:!?)\]}]+$');
+  static final Map<String, Math> _parsedMath = {};
 
   @override
   Widget build(BuildContext context) {
+    // _buildSpans creates recognizers for links. A theme update can rebuild
+    // this widget without changing its content, so retire the previous set
+    // on every build instead of retaining one set per theme switch.
+    _disposeRecognizers();
     final palette = AppPalette.of(context);
     return Text.rich(
       TextSpan(children: _buildSpans(widget.content, widget.style, palette)),
@@ -79,14 +85,22 @@ class _MathTextState extends State<MathText> {
     );
   }
 
-  List<InlineSpan> _buildSpans(String text, TextStyle style, AppPalette palette) {
+  List<InlineSpan> _buildSpans(
+    String text,
+    TextStyle style,
+    AppPalette palette,
+  ) {
     final spans = <InlineSpan>[];
     int lastEnd = 0;
 
     for (final match in _mathPattern.allMatches(text)) {
       if (match.start > lastEnd) {
         spans.addAll(
-          _buildTextWithLinks(text.substring(lastEnd, match.start), style, palette),
+          _buildTextWithLinks(
+            text.substring(lastEnd, match.start),
+            style,
+            palette,
+          ),
         );
       }
 
@@ -95,16 +109,28 @@ class _MathTextState extends State<MathText> {
         // Not real math (e.g. a lone "$5" price) — keep the raw text.
         spans.addAll(_buildTextWithLinks(match.group(0) ?? '', style, palette));
       } else {
+        // Math.tex parses synchronously. Theme changes rebuild this widget
+        // with a new text color, so reuse the parsed tree and pass the current
+        // style to a fresh Math widget instead of parsing the expression again.
+        if (!_parsedMath.containsKey(tex)) {
+          if (_parsedMath.length >= 64) {
+            _parsedMath.remove(_parsedMath.keys.first);
+          }
+          _parsedMath[tex] = Math.tex(tex, mathStyle: MathStyle.text);
+        }
+        final parsed = _parsedMath[tex]!;
         spans.add(
           WidgetSpan(
             alignment: PlaceholderAlignment.middle,
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 1.0),
-              child: Math.tex(
-                tex,
+              child: Math(
+                ast: parsed.ast,
+                parseError: parsed.parseError,
                 textStyle: style,
                 mathStyle: MathStyle.text,
-                onErrorFallback: (_) => Text(match.group(0) ?? '', style: style),
+                onErrorFallback: (_) =>
+                    Text(match.group(0) ?? '', style: style),
               ),
             ),
           ),
@@ -115,7 +141,9 @@ class _MathTextState extends State<MathText> {
     }
 
     if (lastEnd < text.length) {
-      spans.addAll(_buildTextWithLinks(text.substring(lastEnd), style, palette));
+      spans.addAll(
+        _buildTextWithLinks(text.substring(lastEnd), style, palette),
+      );
     }
 
     if (spans.isEmpty) {
@@ -127,7 +155,11 @@ class _MathTextState extends State<MathText> {
 
   /// Splits a plain-text (non-math) segment into regular text spans and
   /// tappable link spans wherever a bare URL appears.
-  List<InlineSpan> _buildTextWithLinks(String text, TextStyle style, AppPalette palette) {
+  List<InlineSpan> _buildTextWithLinks(
+    String text,
+    TextStyle style,
+    AppPalette palette,
+  ) {
     final spans = <InlineSpan>[];
     int lastEnd = 0;
 
@@ -146,7 +178,9 @@ class _MathTextState extends State<MathText> {
       if (url.isEmpty) continue;
 
       if (match.start > lastEnd) {
-        spans.add(TextSpan(text: text.substring(lastEnd, match.start), style: style));
+        spans.add(
+          TextSpan(text: text.substring(lastEnd, match.start), style: style),
+        );
       }
 
       final recognizer = TapGestureRecognizer()..onTap = () => _openLink(url);
@@ -183,15 +217,15 @@ class _MathTextState extends State<MathText> {
       final uri = Uri.parse(url);
       final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
       if (!ok && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not open $url')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Could not open $url')));
       }
     } catch (_) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not open $url')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Could not open $url')));
       }
     }
   }

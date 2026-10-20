@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+
 class AppPalette {
   final Color background;
   final Color surface;
@@ -123,38 +124,114 @@ class AppPalette {
   );
 
   static AppPalette of(BuildContext context) {
-    return Theme.of(context).brightness == Brightness.dark ? dark : light;
+    final theme = Theme.of(context);
+    return theme.extension<AppPaletteTheme>()?.palette ??
+        (theme.brightness == Brightness.dark ? dark : light);
+  }
+}
+
+/// Carries the app's custom colors through Flutter's animated theme lerp.
+class AppPaletteTheme extends ThemeExtension<AppPaletteTheme> {
+  final AppPalette palette;
+
+  const AppPaletteTheme(this.palette);
+
+  @override
+  AppPaletteTheme copyWith({AppPalette? palette}) =>
+      AppPaletteTheme(palette ?? this.palette);
+
+  @override
+  AppPaletteTheme lerp(ThemeExtension<AppPaletteTheme>? other, double t) {
+    if (other is! AppPaletteTheme) return this;
+    final from = palette;
+    final to = other.palette;
+    Color blend(Color a, Color b) => Color.lerp(a, b, t)!;
+    return AppPaletteTheme(
+      AppPalette(
+        background: blend(from.background, to.background),
+        surface: blend(from.surface, to.surface),
+        surfaceRaised: blend(from.surfaceRaised, to.surfaceRaised),
+        textPrimary: blend(from.textPrimary, to.textPrimary),
+        textSecondary: blend(from.textSecondary, to.textSecondary),
+        textTertiary: blend(from.textTertiary, to.textTertiary),
+        border: blend(from.border, to.border),
+        borderSoft: blend(from.borderSoft, to.borderSoft),
+        buttonPrimary: blend(from.buttonPrimary, to.buttonPrimary),
+        buttonPrimaryText: blend(from.buttonPrimaryText, to.buttonPrimaryText),
+        buttonSecondary: blend(from.buttonSecondary, to.buttonSecondary),
+        buttonSecondaryBorder: blend(
+          from.buttonSecondaryBorder,
+          to.buttonSecondaryBorder,
+        ),
+        buttonSecondaryText: blend(
+          from.buttonSecondaryText,
+          to.buttonSecondaryText,
+        ),
+        chipSelectedBackground: blend(
+          from.chipSelectedBackground,
+          to.chipSelectedBackground,
+        ),
+        chipSelectedBorder: blend(
+          from.chipSelectedBorder,
+          to.chipSelectedBorder,
+        ),
+        chipSelectedText: blend(from.chipSelectedText, to.chipSelectedText),
+        chipUnselectedBackground: blend(
+          from.chipUnselectedBackground,
+          to.chipUnselectedBackground,
+        ),
+        chipUnselectedBorder: blend(
+          from.chipUnselectedBorder,
+          to.chipUnselectedBorder,
+        ),
+        chipUnselectedText: blend(
+          from.chipUnselectedText,
+          to.chipUnselectedText,
+        ),
+        warningSurface: blend(from.warningSurface, to.warningSurface),
+        warningBorder: blend(from.warningBorder, to.warningBorder),
+        warningIcon: blend(from.warningIcon, to.warningIcon),
+        warningText: blend(from.warningText, to.warningText),
+        danger: blend(from.danger, to.danger),
+        link: blend(from.link, to.link),
+        shimmerBase: blend(from.shimmerBase, to.shimmerBase),
+        shimmerHighlight: blend(from.shimmerHighlight, to.shimmerHighlight),
+        shadow: blend(from.shadow, to.shadow),
+      ),
+    );
   }
 }
 
 ThemeData buildAppTheme(AppPalette palette, Brightness brightness) {
-  final scheme = ColorScheme.fromSeed(
-    seedColor: const Color(0xff111625),
-    brightness: brightness,
-  ).copyWith(
-    primary: palette.textPrimary,
-    onPrimary: palette.buttonPrimaryText,
-    secondary: palette.textPrimary,
-    onSecondary: palette.buttonPrimaryText,
-    surface: palette.surface,
-    onSurface: palette.textPrimary,
-    surfaceContainerHighest: palette.surfaceRaised,
-    surfaceContainerHigh: palette.surfaceRaised,
-    surfaceContainer: palette.surfaceRaised,
-    surfaceContainerLow: palette.surface,
-    surfaceContainerLowest: palette.background,
-    onSurfaceVariant: palette.textSecondary,
-    outline: palette.border,
-    outlineVariant: palette.borderSoft,
-    error: palette.danger,
-    onError: Colors.white,
-    shadow: palette.shadow,
-  );
+  final scheme =
+      ColorScheme.fromSeed(
+        seedColor: const Color(0xff111625),
+        brightness: brightness,
+      ).copyWith(
+        primary: palette.textPrimary,
+        onPrimary: palette.buttonPrimaryText,
+        secondary: palette.textPrimary,
+        onSecondary: palette.buttonPrimaryText,
+        surface: palette.surface,
+        onSurface: palette.textPrimary,
+        surfaceContainerHighest: palette.surfaceRaised,
+        surfaceContainerHigh: palette.surfaceRaised,
+        surfaceContainer: palette.surfaceRaised,
+        surfaceContainerLow: palette.surface,
+        surfaceContainerLowest: palette.background,
+        onSurfaceVariant: palette.textSecondary,
+        outline: palette.border,
+        outlineVariant: palette.borderSoft,
+        error: palette.danger,
+        onError: Colors.white,
+        shadow: palette.shadow,
+      );
 
   return ThemeData(
     useMaterial3: true,
     brightness: brightness,
     colorScheme: scheme,
+    extensions: [AppPaletteTheme(palette)],
     scaffoldBackgroundColor: palette.background,
     dividerColor: palette.borderSoft,
     textTheme: TextTheme(

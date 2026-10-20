@@ -30,10 +30,14 @@ Future<void> main() async {
 class DailyThesisApp extends StatelessWidget {
   const DailyThesisApp({super.key});
 
-  static final ThemeData _lightTheme =
-      buildAppTheme(AppPalette.light, Brightness.light);
-  static final ThemeData _darkTheme =
-      buildAppTheme(AppPalette.dark, Brightness.dark);
+  static final ThemeData _lightTheme = buildAppTheme(
+    AppPalette.light,
+    Brightness.light,
+  );
+  static final ThemeData _darkTheme = buildAppTheme(
+    AppPalette.dark,
+    Brightness.dark,
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -46,9 +50,6 @@ class DailyThesisApp extends StatelessWidget {
           theme: _lightTheme,
           darkTheme: _darkTheme,
           themeMode: themeMode,
-          // Theme transitions rebuild large parts of the reading screen on
-          // every animation frame. Apply the palette immediately so mode
-          // changes stay responsive on lower-end devices.
           themeAnimationDuration: Duration.zero,
           builder: (context, child) {
             final brightness = switch (themeMode) {
@@ -59,30 +60,29 @@ class DailyThesisApp extends StatelessWidget {
             final palette = brightness == Brightness.dark
                 ? AppPalette.dark
                 : AppPalette.light;
+            final icons = brightness == Brightness.dark
+                ? Brightness.light
+                : Brightness.dark;
 
-            SystemChrome.setSystemUIOverlayStyle(
-              SystemUiOverlayStyle(
+            return AnnotatedRegion<SystemUiOverlayStyle>(
+              value: SystemUiOverlayStyle(
                 statusBarColor: Colors.transparent,
-                statusBarIconBrightness: brightness == Brightness.dark
-                    ? Brightness.light
-                    : Brightness.dark,
+                statusBarIconBrightness: icons,
+                statusBarBrightness: brightness,
                 systemNavigationBarColor: palette.background,
-                systemNavigationBarIconBrightness: brightness == Brightness.dark
-                    ? Brightness.light
-                    : Brightness.dark,
+                systemNavigationBarIconBrightness: icons,
               ),
-            );
-
-            return ValueListenableBuilder<AppTextScale>(
-              valueListenable: TextScaleController.instance.notifier,
-              builder: (context, textScale, _) {
-                return MediaQuery(
-                  data: MediaQuery.of(
-                    context,
-                  ).copyWith(textScaler: TextScaler.linear(textScale.factor)),
-                  child: child ?? const SizedBox.shrink(),
-                );
-              },
+              child: ValueListenableBuilder<AppTextScale>(
+                valueListenable: TextScaleController.instance.notifier,
+                builder: (context, textScale, _) {
+                  return MediaQuery(
+                    data: MediaQuery.of(
+                      context,
+                    ).copyWith(textScaler: TextScaler.linear(textScale.factor)),
+                    child: child ?? const SizedBox.shrink(),
+                  );
+                },
+              ),
             );
           },
           home: const AppRoot(),
