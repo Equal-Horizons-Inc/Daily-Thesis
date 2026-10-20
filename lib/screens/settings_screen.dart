@@ -77,6 +77,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
         ),
       );
+    } else if (enabled) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Daily reminder set for ${_reminderTime.format(context)}.',
+          ),
+        ),
+      );
     }
   }
 
@@ -89,10 +97,37 @@ class _SettingsScreenState extends State<SettingsScreen> {
     try {
       await NotificationService.instance.setTime(time.hour, time.minute);
       if (mounted) setState(() => _reminderTime = time);
+      if (mounted && _reminderEnabled) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Daily reminder updated to ${time.format(context)}.'),
+          ),
+        );
+      }
     } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Could not update the reminder time.')),
+      );
+    }
+  }
+
+  Future<void> _sendTestReminder() async {
+    try {
+      await NotificationService.instance.sendTestNotification();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Test scheduled. Leave the app; it should arrive in 10 seconds.',
+          ),
+          duration: Duration(seconds: 5),
+        ),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not send a test notification.')),
       );
     }
   }
@@ -347,6 +382,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 ),
                               ),
                             ),
+                          ),
+                        ),
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: TextButton.icon(
+                            onPressed:
+                                _reminderLoaded &&
+                                    _reminderEnabled &&
+                                    !_updatingReminder
+                                ? _sendTestReminder
+                                : null,
+                            icon: const Icon(
+                              Icons.notifications_active_outlined,
+                            ),
+                            label: const Text('Schedule test notification'),
                           ),
                         ),
                       ],
