@@ -45,6 +45,8 @@ dependencies:
   firebase_analytics: ^11.3.6
   firebase_messaging: ^15.1.6
   flutter_local_notifications: ^18.0.1
+  flutter_timezone: ^5.1.1
+  timezone: ^0.10.1
   html_unescape: ^2.0.0
 
 dev_dependencies:

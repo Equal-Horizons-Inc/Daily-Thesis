@@ -600,29 +600,31 @@ class _PaperScreenState extends State<PaperScreen> with WidgetsBindingObserver {
     final action = await showModalBottomSheet<String>(
       context: context,
       backgroundColor: Colors.transparent,
-      isScrollControlled: false,
+      isScrollControlled: true,
+      useSafeArea: true,
+      sheetAnimationStyle: const AnimationStyle(
+        duration: Duration(milliseconds: 240),
+        reverseDuration: Duration(milliseconds: 200),
+      ),
       builder: (context) {
-        return SafeArea(
+        return Padding(
+          // Leave room below the floating sheet so its rounded lower edge
+          // clears the device gesture area and does not feel clipped.
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 28),
           child: Container(
-            margin: const EdgeInsets.all(12),
             decoration: BoxDecoration(
               color: palette.surface,
-              borderRadius: BorderRadius.circular(24),
+              borderRadius: BorderRadius.circular(22),
               boxShadow: [
                 BoxShadow(
                   color: palette.shadow,
-                  blurRadius: 30,
-                  offset: const Offset(0, 14),
+                  blurRadius: 22,
+                  offset: const Offset(0, 8),
                 ),
               ],
             ),
             child: Padding(
-              padding: EdgeInsets.only(
-                left: 16,
-                right: 16,
-                top: 12,
-                bottom: MediaQuery.paddingOf(context).bottom + 12,
-              ),
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [

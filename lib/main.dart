@@ -8,9 +8,6 @@ import 'services/profile_storage.dart';
 import 'services/text_scale_storage.dart';
 import 'services/theme_mode_storage.dart';
 import 'theme/app_theme.dart';
-import 'services/notification_service.dart';
-import 'package:firebase_messaging/firebase_messaging.dart';
-import 'services/device_id_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -19,24 +16,13 @@ Future<void> main() async {
 
   // Firebase configuration is provisioned separately for each iOS bundle ID.
   // A missing or invalid configuration must not prevent the reading app from
-  // launching; analytics and push notifications simply remain unavailable.
-  var firebaseAvailable = false;
+  // launching; analytics simply remain unavailable.
   try {
     await Firebase.initializeApp();
-    firebaseAvailable = true;
     await AnalyticsService.instance.initialize();
     AnalyticsService.instance.logAppOpen();
-    FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
   } catch (error) {
     debugPrint('Firebase is unavailable: $error');
-  }
-  final deviceId = await DeviceIdService.getOrCreate();
-  final profile = await ProfileStorage().load();
-  if (firebaseAvailable) {
-    await NotificationService.instance.initialize(
-      deviceId,
-      subjects: profile?.matchedSubjects ?? [],
-    );
   }
   runApp(const DailyThesisApp());
 }

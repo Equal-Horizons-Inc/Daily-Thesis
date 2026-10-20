@@ -15,24 +15,55 @@ class LibraryScreen extends StatefulWidget {
 
 class _LibraryScreenState extends State<LibraryScreen> {
   final _storage = SavedPapersStorage();
-  late Future<List<SavedPaperEntry>> _entriesFuture;
+  List<SavedPaperEntry> _entries = const [];
+  bool _isLoading = true;
   String _query = '';
 
   @override
   void initState() {
     super.initState();
-    _entriesFuture = _storage.load();
+    _loadEntries();
+  }
+
+  Future<void> _loadEntries() async {
+    try {
+      final entries = await _storage.load();
+      if (!mounted) return;
+      setState(() {
+        _entries = entries;
+        _isLoading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not load your Library')),
+      );
+    }
   }
 
   Future<void> _refresh() async {
-    setState(() => _entriesFuture = _storage.load());
-    await _entriesFuture;
+    final entries = await _storage.load();
+    if (mounted) setState(() => _entries = entries);
   }
 
   Future<void> _remove(SavedPaperEntry entry) async {
-    await _storage.remove(entry.paper.url);
-    if (!mounted) return;
-    await _refresh();
+    final previousEntries = _entries;
+    setState(() {
+      _entries = _entries
+          .where((item) => item.paper.url != entry.paper.url)
+          .toList();
+    });
+    try {
+      await _storage.remove(entry.paper.url);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _entries = previousEntries);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not remove this paper')),
+      );
+      return;
+    }
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -40,7 +71,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
         action: SnackBarAction(
           label: 'Undo',
           onPressed: () {
-            _storage.save(entry.paper).then((_) => _refresh());
+            _storage.save(entry.paper).then((_) {
+              if (mounted) setState(() => _entries = [entry, ..._entries]);
+            });
           },
         ),
       ),
@@ -71,6 +104,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
   @override
   Widget build(BuildContext context) {
     final palette = AppPalette.of(context);
+    final entries = _entries.where(_matches).toList();
     return Scaffold(
       backgroundColor: palette.background,
       appBar: AppBar(
@@ -89,59 +123,52 @@ class _LibraryScreenState extends State<LibraryScreen> {
         ),
         centerTitle: true,
       ),
-      body: FutureBuilder<List<SavedPaperEntry>>(
-        future: _entriesFuture,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
-
-          final entries = (snapshot.data ?? const []).where(_matches).toList();
-          return Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
-                child: TextField(
-                  onChanged: (value) => setState(() => _query = value),
-                  textInputAction: TextInputAction.search,
-                  decoration: InputDecoration(
-                    hintText: 'Search saved papers',
-                    prefixIcon: const Icon(Icons.search_rounded),
-                    filled: true,
-                    fillColor: palette.surfaceRaised,
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(14),
-                      borderSide: BorderSide(color: palette.borderSoft),
-                    ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(14),
-                      borderSide: BorderSide(color: palette.borderSoft),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
+                  child: TextField(
+                    onChanged: (value) => setState(() => _query = value),
+                    textInputAction: TextInputAction.search,
+                    decoration: InputDecoration(
+                      hintText: 'Search saved papers',
+                      prefixIcon: const Icon(Icons.search_rounded),
+                      filled: true,
+                      fillColor: palette.surfaceRaised,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: BorderSide(color: palette.borderSoft),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: BorderSide(color: palette.borderSoft),
+                      ),
                     ),
                   ),
                 ),
-              ),
-              Expanded(
-                child: entries.isEmpty
-                    ? _EmptyLibrary(hasSearch: _query.trim().isNotEmpty)
-                    : RefreshIndicator(
-                        onRefresh: _refresh,
-                        child: ListView.separated(
-                          padding: const EdgeInsets.fromLTRB(20, 4, 20, 28),
-                          itemCount: entries.length,
-                          separatorBuilder: (_, _) =>
-                              const SizedBox(height: 12),
-                          itemBuilder: (context, index) => _LibraryCard(
-                            entry: entries[index],
-                            onOpen: () => _openPaper(entries[index].paper.url),
-                            onRemove: () => _remove(entries[index]),
+                Expanded(
+                  child: entries.isEmpty
+                      ? _EmptyLibrary(hasSearch: _query.trim().isNotEmpty)
+                      : RefreshIndicator(
+                          onRefresh: _refresh,
+                          child: ListView.separated(
+                            padding: const EdgeInsets.fromLTRB(20, 4, 20, 28),
+                            itemCount: entries.length,
+                            separatorBuilder: (_, _) =>
+                                const SizedBox(height: 12),
+                            itemBuilder: (context, index) => _LibraryCard(
+                              entry: entries[index],
+                              onOpen: () =>
+                                  _openPaper(entries[index].paper.url),
+                              onRemove: () => _remove(entries[index]),
+                            ),
                           ),
                         ),
-                      ),
-              ),
-            ],
-          );
-        },
-      ),
+                ),
+              ],
+            ),
     );
   }
 }

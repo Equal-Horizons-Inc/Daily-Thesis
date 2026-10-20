@@ -1,180 +1,184 @@
-import 'dart:convert';
-import 'package:firebase_core/firebase_core.dart';
-import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-import 'package:http/http.dart' as http;
+import 'package:flutter_timezone/flutter_timezone.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:timezone/data/latest_all.dart' as tz_data;
+import 'package:timezone/timezone.dart' as tz;
 
-/// Must be a top-level function (not a class method) — FCM calls this
-/// in a separate isolate when a push arrives while the app is fully
-/// terminated (not just backgrounded).
-@pragma('vm:entry-point')
-Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
-  await Firebase.initializeApp();
-  debugPrint('Background push received: ${message.messageId}');
+class DailyReminderSettings {
+  final bool enabled;
+  final int hour;
+  final int minute;
+
+  const DailyReminderSettings({
+    required this.enabled,
+    required this.hour,
+    required this.minute,
+  });
+
+  DateTime get time => DateTime(2000, 1, 1, hour, minute);
 }
 
-/// Centralizes push notification setup: permission request, FCM token
-/// retrieval, registering that token (plus the user's subject
-/// interests) with the Worker under this install's device ID, and
-/// displaying a banner when a push arrives while the app is open (FCM
-/// doesn't do this automatically on Android).
+/// Manages an optional daily local reminder. Local scheduling keeps the
+/// reminder in the device's timezone and does not depend on the Worker cron.
 class NotificationService {
   NotificationService._();
 
   static final NotificationService instance = NotificationService._();
 
-  // Same Worker used by PaperService — kept as its own constant here so
-  // this file doesn't take on a dependency on paper_service.dart.
-  static const String _workerUrl =
-      'https://quiet-bread-7971.li231sdyt.workers.dev/';
-
-  final FirebaseMessaging _messaging = FirebaseMessaging.instance;
-  final FlutterLocalNotificationsPlugin _localNotifications =
-      FlutterLocalNotificationsPlugin();
-
-  String? _fcmToken;
-  String? get fcmToken => _fcmToken;
-
-  String? _userId;
-  List<String> _subjects = const [];
-
+  static const _enabledKey = 'daily_reminder_enabled_v1';
+  static const _hourKey = 'daily_reminder_hour_v1';
+  static const _minuteKey = 'daily_reminder_minute_v1';
+  static const _notificationId = 7301;
   static const _channel = AndroidNotificationChannel(
-    'daily_thesis_default',
-    'Daily Thesis Notifications',
-    description: 'New paper recommendations and app updates',
-    importance: Importance.high,
+    'daily_thesis_reminder',
+    'Daily paper reminder',
+    description: 'A reminder to read your daily research paper',
+    importance: Importance.defaultImportance,
   );
 
-  /// [userId] should be a stable per-install identifier (see
-  /// DeviceIdService.getOrCreate). [subjects] should be the user's
-  /// current `UserProfile.matchedSubjects` — pass an empty list if
-  /// onboarding hasn't completed yet, the Worker falls back to a
-  /// generic subject in that case.
-  Future<void> initialize(
-    String userId, {
-    List<String> subjects = const [],
-  }) async {
-    _userId = userId;
-    _subjects = subjects;
-    try {
-      // iOS/Android 13+ requires explicit permission.
-      final settings = await _messaging.requestPermission(
-        alert: true,
-        badge: true,
-        sound: true,
-      );
-      debugPrint('Notification permission: ${settings.authorizationStatus}');
+  final FlutterLocalNotificationsPlugin _notifications =
+      FlutterLocalNotificationsPlugin();
+  bool _initialized = false;
 
-      if (defaultTargetPlatform == TargetPlatform.iOS) {
-        await _messaging.setForegroundNotificationPresentationOptions(
+  Future<DailyReminderSettings> loadSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    return DailyReminderSettings(
+      enabled: prefs.getBool(_enabledKey) ?? false,
+      hour: prefs.getInt(_hourKey) ?? 9,
+      minute: prefs.getInt(_minuteKey) ?? 0,
+    );
+  }
+
+  Future<bool> setEnabled(bool enabled) async {
+    final prefs = await SharedPreferences.getInstance();
+    if (!enabled) {
+      if (!kIsWeb) {
+        await _initialize();
+        await _notifications.cancel(_notificationId);
+      }
+      await prefs.setBool(_enabledKey, false);
+      return true;
+    }
+
+    if (kIsWeb ||
+        !(defaultTargetPlatform == TargetPlatform.android ||
+            defaultTargetPlatform == TargetPlatform.iOS)) {
+      return false;
+    }
+
+    try {
+      await _initialize();
+      final granted = await _requestPermission();
+      if (!granted) return false;
+
+      final settings = await loadSettings();
+      await _schedule(settings.hour, settings.minute);
+      await prefs.setBool(_enabledKey, true);
+      return true;
+    } catch (error) {
+      debugPrint('Could not schedule daily reminder: $error');
+      return false;
+    }
+  }
+
+  Future<void> setTime(int hour, int minute) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_hourKey, hour);
+    await prefs.setInt(_minuteKey, minute);
+    if (prefs.getBool(_enabledKey) ?? false) {
+      await _initialize();
+      await _schedule(hour, minute);
+    }
+  }
+
+  Future<void> _initialize() async {
+    if (_initialized) return;
+    await _notifications.initialize(
+      const InitializationSettings(
+        android: AndroidInitializationSettings('@mipmap/ic_launcher'),
+        iOS: DarwinInitializationSettings(),
+      ),
+    );
+    await _notifications
+        .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin
+        >()
+        ?.createNotificationChannel(_channel);
+    tz_data.initializeTimeZones();
+    final timezoneInfo = await FlutterTimezone.getLocalTimezone();
+    tz.setLocalLocation(tz.getLocation(timezoneInfo.identifier));
+    _initialized = true;
+  }
+
+  Future<bool> _requestPermission() async {
+    if (defaultTargetPlatform == TargetPlatform.android) {
+      final android = _notifications
+          .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin
+          >();
+      if (await android?.areNotificationsEnabled() ?? false) return true;
+      return await android?.requestNotificationsPermission() ?? true;
+    }
+    final ios = _notifications
+        .resolvePlatformSpecificImplementation<
+          IOSFlutterLocalNotificationsPlugin
+        >();
+    final status = await ios?.checkPermissions();
+    if (status?.isEnabled ?? false) return true;
+    return await ios?.requestPermissions(
           alert: true,
           badge: true,
           sound: true,
-        );
-      }
+        ) ??
+        true;
+  }
 
-      await _localNotifications
-          .resolvePlatformSpecificImplementation<
-            AndroidFlutterLocalNotificationsPlugin
-          >()
-          ?.createNotificationChannel(_channel);
-
-      await _localNotifications.initialize(
-        const InitializationSettings(
-          android: AndroidInitializationSettings('@mipmap/ic_launcher'),
-          iOS: DarwinInitializationSettings(),
-        ),
+  Future<void> _schedule(int hour, int minute) async {
+    final now = tz.TZDateTime.now(tz.local);
+    var next = tz.TZDateTime(
+      tz.local,
+      now.year,
+      now.month,
+      now.day,
+      hour,
+      minute,
+    );
+    if (!next.isAfter(now)) {
+      next = tz.TZDateTime(
+        tz.local,
+        now.year,
+        now.month,
+        now.day + 1,
+        hour,
+        minute,
       );
-
-      _fcmToken = await _messaging.getToken();
-      debugPrint('FCM token: $_fcmToken');
-      await _registerToken();
-
-      // Token can rotate (e.g. app reinstall, token expiry) — re-sync
-      // to the Worker whenever that happens.
-      _messaging.onTokenRefresh.listen((newToken) {
-        _fcmToken = newToken;
-        debugPrint('FCM token refreshed: $newToken');
-        _registerToken();
-      });
-
-      // Foreground messages don't show a system banner on Android by
-      // default — display one manually via flutter_local_notifications.
-      FirebaseMessaging.onMessage.listen(_showForegroundNotification);
-    } catch (e) {
-      debugPrint('Notification init failed: $e');
     }
-  }
 
-  /// Call whenever the user's subject interests change (onboarding
-  /// finishing, or Settings being saved) so the Worker's next daily
-  /// push reflects the update. Safe to call even if [initialize]
-  /// already registered a token — this just re-registers with the new
-  /// subject list.
-  Future<void> updateSubjects(List<String> subjects) async {
-    _subjects = subjects;
-    await _registerToken();
-  }
-
-  /// POSTs the current userId + FCM token + subjects to the Worker's
-  /// /register-token endpoint. Safe to call repeatedly — the Worker
-  /// overwrites the stored record for this userId each time.
-  Future<void> _registerToken() async {
-    final userId = _userId;
-    final token = _fcmToken;
-    if (userId == null || token == null) return;
-
-    try {
-      final response = await http
-          .post(
-            Uri.parse('${_workerUrl}register-token'),
-            headers: {'Content-Type': 'application/json'},
-            body: jsonEncode({
-              'userId': userId,
-              'fcmToken': token,
-              'subjects': _subjects,
-            }),
-          )
-          .timeout(const Duration(seconds: 10));
-
-      if (response.statusCode == 200) {
-        debugPrint('Push token registered for $userId (subjects: $_subjects)');
-      } else {
-        debugPrint(
-          'register-token failed: ${response.statusCode} ${response.body}',
-        );
-      }
-    } catch (e) {
-      // Non-fatal — push just won't work until the next successful
-      // registration attempt (next app open or token refresh).
-      debugPrint('register-token error: $e');
-    }
-  }
-
-  void _showForegroundNotification(RemoteMessage message) {
-    // iOS displays foreground alerts through the presentation options set
-    // during initialization. The Android local notification path below would
-    // otherwise duplicate the alert on iPhone.
-    if (defaultTargetPlatform == TargetPlatform.iOS) return;
-
-    final notification = message.notification;
-    if (notification == null) return;
-
-    _localNotifications.show(
-      notification.hashCode,
-      notification.title,
-      notification.body,
-      NotificationDetails(
+    await _notifications.zonedSchedule(
+      _notificationId,
+      'Your daily paper is ready',
+      'Take a few minutes to explore today’s research recommendation.',
+      next,
+      const NotificationDetails(
         android: AndroidNotificationDetails(
-          _channel.id,
-          _channel.name,
-          channelDescription: _channel.description,
-          importance: Importance.high,
-          priority: Priority.high,
-          icon: '@mipmap/ic_launcher',
+          'daily_thesis_reminder',
+          'Daily paper reminder',
+          channelDescription: 'A reminder to read your daily research paper',
+          importance: Importance.defaultImportance,
+          priority: Priority.defaultPriority,
+        ),
+        iOS: DarwinNotificationDetails(
+          presentAlert: true,
+          presentBanner: true,
+          presentList: true,
+          presentSound: true,
         ),
       ),
+      androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+      uiLocalNotificationDateInterpretation:
+          UILocalNotificationDateInterpretation.wallClockTime,
+      matchDateTimeComponents: DateTimeComponents.time,
     );
   }
 }
