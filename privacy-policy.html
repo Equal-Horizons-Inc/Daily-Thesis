@@ -198,7 +198,7 @@
 
       <p class="eyebrow">Legal</p>
       <h1>Privacy Policy</h1>
-      <p class="updated">Last updated: July 19, 2026</p>
+      <p class="updated">Last updated: October 21, 2026</p>
 
       <p>
         Daily Thesis is built to keep your reading experience local and
@@ -211,9 +211,9 @@
 
       <h2>What Daily Thesis stores on your device only</h2>
       <p>
-        The app stores the following locally so it can personalize
-        recommendations and remember your preferences. None of this leaves
-        your device.
+        The app stores the following on your device so it can personalize
+        recommendations and remember your preferences. This app data is not
+        uploaded as a reading profile.
       </p>
       <ul>
         <li>Your name, if you enter it during onboarding or in Settings.</li>
@@ -231,6 +231,8 @@
           Your paper history, so you can revisit papers you've previously
           been shown.
         </li>
+        <li>Papers you save to your Library.</li>
+        <li>Your reading streak and daily reminder settings.</li>
       </ul>
       <p>
         Uninstalling the app permanently deletes all of the above, since none
@@ -241,11 +243,26 @@
 
       <h2>Getting your daily paper</h2>
       <p>
-        The app requests a paper recommendation from its backend service,
-        which aggregates from arXiv, PubMed, OpenAlex, Semantic Scholar,
-        ChemRxiv, bioRxiv, and medRxiv. This request includes your selected
-        subject only — no account or persistent identifier is attached to
-        it.
+        The app requests papers from its backend service, which retrieves
+        research records from public scholarly sources. The request includes
+        the selected subject, but the app does not attach your name, reading
+        history, or an account identifier. Like any network request, it is
+        sent from your device through your network connection; the service
+        provider may process technical request information such as an IP
+        address to deliver the response.
+      </p>
+      <p>
+        If you use “New to this field?” to request background context, the
+        app sends the paper's title, abstract, paper identifier, and (when
+        available) your selected field to a separate Cloudflare Worker. On a
+        cache miss, that Worker sends the title, abstract, and field to
+        OpenRouter using an AI model to generate a plain-language summary
+        and key-term definitions. The generated context is cached by paper
+        identifier for up to 180 days. This request does not include your
+        name, account, or reading history. See
+        <a href="https://openrouter.ai/privacy" target="_blank" rel="noopener">OpenRouter's privacy information</a>
+        and
+        <a href="https://www.cloudflare.com/privacypolicy/" target="_blank" rel="noopener">Cloudflare's Privacy Policy</a>.
       </p>
       <p>
         When you tap "Read Full Publication," "Cite," or "Share," the app
@@ -257,35 +274,32 @@
 
       <h2>Push notifications</h2>
       <p>
-        If you allow notifications, the app generates a random device
-        identifier (not tied to your name, email, or any account) and
-        registers it, along with your device's notification token and
-        selected subjects, with our backend so we know where and what to
-        send your daily notification. This is separate from the anonymous
-        paper-fetching request described above, and is the only place a
-        persistent identifier is sent off your device.
+        The current app's “Daily reminder” is scheduled locally by your
+        device. Its enabled state and chosen time stay on your device; the
+        reminder does not require a push token or a server-side schedule.
+        The supplied backend also contains an FCM registration and delivery
+        capability. If remote push registration is enabled in a future app
+        version, it will send a random install identifier, notification
+        token, and selected subjects to the backend for notification
+        delivery, and this policy will be revised to describe that live
+        data flow.
       </p>
       <p>
-        This data is transmitted securely (HTTPS) and stored only for as
-        long as needed to deliver notifications. See "Requesting data
-        deletion" below to have it removed.
+        The local reminder data is removed when you clear the app's storage
+        or uninstall the app. Remote push token handling is not currently
+        called by this app build.
       </p>
 
       <hr />
 
       <h2>Analytics</h2>
       <p>
-        Daily Thesis uses Firebase Analytics (a Google service) to
-        understand how the app is used and to fix problems. This includes
-        app opens, screen views, which subjects you select (as counts, not
-        tied to your name), whether you liked, skipped, or disliked a paper
-        (recorded as a subject and action only — never which specific
-        paper), and whether a paper was served from the offline cache.
-        Firebase also automatically collects basic device and diagnostic
-        information (device model, OS version, app version) and an
-        approximate, IP-derived location. Google processes this data on our
-        behalf as our analytics provider; it is not sold or shared with
-        other companies. See
+        The app enables Firebase Analytics when Firebase is configured and
+        explicitly logs app opens. Firebase may also collect usage,
+        diagnostic, and device information automatically as described in
+        Google's documentation. Analytics may be unavailable on a device
+        without valid Firebase configuration. Google processes analytics
+        data under its own terms and privacy disclosures. See
         <a href="https://policies.google.com/privacy" target="_blank" rel="noopener">Google's Privacy Policy</a>
         for details on how Google handles this data.
       </p>
@@ -305,13 +319,10 @@
 
       <h2>Discuss with ChatGPT</h2>
       <p>
-        If you tap "Discuss with ChatGPT" on a paper, the app opens ChatGPT
-        with that paper's title, authors, and abstract pre-filled into a
-        prompt for you to review and send. This is publicly available
-        information about the paper itself, not personal data about you. The
-        app does not send anything to OpenAI unless you tap this button, and
-        the request happens directly between your device and ChatGPT — Daily
-        Thesis is not in the middle of it. Use of ChatGPT is subject to
+        If you tap “Discuss with ChatGPT,” the app opens ChatGPT with the
+        paper's title, authors, and abstract pre-filled into a prompt for you
+        to review and send. The app does not make this request to OpenAI;
+        you choose whether to continue in ChatGPT. Use of ChatGPT is subject to
         <a href="https://openai.com/policies/privacy-policy" target="_blank" rel="noopener">OpenAI's Privacy Policy</a>.
       </p>
 
@@ -322,12 +333,13 @@
         <li>It does not require an account or login.</li>
         <li>It does not sell your personal information to anyone.</li>
         <li>
-          It does not store your reading history, liked papers, name, or
-          preferences on a server — those stay on your device only.
+          It does not store your reading history, liked papers, saved papers,
+          name, or full profile on a server — those stay on your device only.
         </li>
         <li>
-          It does not attach your name or any local preference to the
-          notification identifier or analytics data described above.
+          It does not attach your name or local reading history to analytics.
+          The current app build does not register remote push tokens with the
+          supplied backend.
         </li>
       </ul>
 
@@ -335,12 +347,11 @@
 
       <h2>Requesting data deletion</h2>
       <p>
-        The only data Daily Thesis stores off your device is the
-        notification registration described above (a random device
-        identifier, notification token, and selected subjects). To request
-        deletion of this data, email us at the address below with enough
-        detail for us to locate your record (for example, the approximate
-        date you installed the app). We'll confirm once it's deleted.
+        The current app build does not register a remote push token with our
+        backend. If you have used a future version that enables this feature,
+        contact us at the address below with enough detail to locate the
+        registration (for example, the approximate installation date) and
+        request its deletion.
       </p>
       <p>
         Locally stored data (name, history, liked papers, preferences) is
