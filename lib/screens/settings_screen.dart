@@ -1,6 +1,7 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../models/user_profile.dart';
 import '../services/interest_matcher.dart';
 import '../services/notification_service.dart';
@@ -107,6 +108,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
     } catch (_) {
       if (!mounted) return;
       _toast('Couldn’t send the test.');
+    }
+  }
+
+  Future<void> _openPrivacyPolicy() async {
+    final uri = Uri.parse(
+      'https://li231sd.github.io/daily_thesis/privacy-policy.html',
+    );
+    if (!await launchUrl(uri, mode: LaunchMode.externalApplication) &&
+        mounted) {
+      _toast('Could not open the Privacy Policy.');
     }
   }
 
@@ -367,6 +378,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     child: InterestPicker(
                       selectedLabels: _selectedInterests,
                       onToggle: _toggleInterest,
+                    ),
+                  ),
+                  _SettingsSection(
+                    title: 'Privacy',
+                    subtitle: 'Learn how Daily Thesis handles your data',
+                    palette: palette,
+                    child: ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: Icon(
+                        Icons.policy_outlined,
+                        color: palette.textSecondary,
+                      ),
+                      title: Text(
+                        'Privacy Policy',
+                        style: TextStyle(color: palette.textPrimary),
+                      ),
+                      trailing: Icon(
+                        Icons.open_in_new_rounded,
+                        size: 18,
+                        color: palette.textTertiary,
+                      ),
+                      onTap: _openPrivacyPolicy,
                     ),
                   ),
                 ],
